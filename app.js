@@ -1,6 +1,6 @@
 /**
  * FORECOURT WORKS LTD — SR & WO Registers (Controlled Document)
- * Two-section app: Sales Request Register + Work Order Register
+ * Two-section app: Service Request Register + Work Order Register
  * Layered: Overview (summary rows) ↔ Detail (Expand)
  * SR Convert → creates WO, lifts data, opens WO detail
  */
@@ -156,6 +156,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
   // ---------- section switch ----------
   function showSection(sec) {
     currentSection = sec;
+    try { localStorage.setItem('fsw_register_section', sec); } catch (_) {}
     document.querySelectorAll('.section-tab').forEach(t => {
       t.classList.toggle('active', t.dataset.section === sec);
     });
@@ -189,7 +190,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
       tbody.innerHTML = '';
       empty.style.display = srRecords.length === 0 ? 'block' : 'block';
       empty.textContent = srRecords.length === 0
-        ? 'No sales requests yet. Click + ADD SR to create the first entry (SR#00071).'
+        ? 'No service requests yet. Click + ADD SR to create the first entry (SR#00071).'
         : 'No requests match the current filters.';
       return;
     }
@@ -207,14 +208,14 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
         <td><span class="${statusClass}">${esc(rec.triage || '')}</span></td>
         <td>
           <div class="row-actions">
-            <button type="button" class="btn-expand" data-action="expand-sr" data-sr="${esc(rec.sr)}">Expand</button>
+            <button type="button" class="btn-edit" data-action="expand-sr" data-sr="${esc(rec.sr)}">Edit</button>
             ${conv
               ? `<span class="mark-converted" title="Converted to WO#${esc(rec.convertedWo)}">✓ Converted</span>`
               : `<button type="button" class="btn-convert" data-action="convert-sr" data-sr="${esc(rec.sr)}"
                    ${(rec.triage === 'Qualified' || rec.emergency) ? '' : 'disabled title="Qualify (or set Emergency) before convert"'}>
                    Convert to WO
                  </button>`}
-            <button type="button" class="icon-btn delete" data-action="delete-sr" data-sr="${esc(rec.sr)}" title="Delete">✕</button>
+            <button type="button" class="btn btn-outline btn-sm" data-action="delete-sr" data-sr="${esc(rec.sr)}" style="color:var(--danger);border-color:#fecaca;">Delete</button>
           </div>
         </td>
       </tr>`;
@@ -252,8 +253,8 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
         <td class="details-col">${esc(rec.details || '')}</td>
         <td>
           <div class="row-actions">
-            <button type="button" class="btn-expand" data-action="expand-wo" data-wo="${esc(rec.wo)}">Expand</button>
-            <button type="button" class="icon-btn delete" data-action="delete-wo" data-wo="${esc(rec.wo)}" title="Delete">✕</button>
+            <button type="button" class="btn-edit" data-action="expand-wo" data-wo="${esc(rec.wo)}">Edit</button>
+            <button type="button" class="btn btn-outline btn-sm" data-action="delete-wo" data-wo="${esc(rec.wo)}" style="color:var(--danger);border-color:#fecaca;">Delete</button>
           </div>
         </td>
       </tr>`;
@@ -265,7 +266,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     const rec = srRecords.find(r => r.sr === srNo);
     if (!rec) return;
     detailCtx = { kind: 'sr', id: srNo };
-    document.getElementById('detail-title').textContent = 'Sales Request SR#' + srNo;
+    document.getElementById('detail-title').textContent = 'Service Request SR#' + srNo;
     document.getElementById('detail-meta').textContent =
       (rec.convertedWo ? 'Converted to WO#' + rec.convertedWo + ' · ' : '') +
       (rec.triage || '') + ' · ' + (rec.client || '');
@@ -331,7 +332,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
           <input type="text" value="${esc(rec.convertedWo ? 'WO#' + rec.convertedWo : '—')}" readonly /></div>
       </div>
       <div class="detail-actions">
-        <button type="button" class="btn btn-primary" id="detail-btn-save-sr">Save Changes</button>
+        <button type="button" class="btn btn-primary" id="detail-btn-save-sr">Save</button>
         ${!rec.convertedWo && (rec.triage === 'Qualified' || rec.emergency)
           ? '<button type="button" class="btn btn-accent" id="detail-btn-convert">Convert to Work Order</button>'
           : ''}
@@ -344,7 +345,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
   }
 
   function saveSrDetail(srNo) {
-    requestAuth('edit Sales Request SR#' + srNo).then(admin => {
+    requestAuth('edit Service Request SR#' + srNo).then(admin => {
       const rec = srRecords.find(r => r.sr === srNo);
       if (!rec) return;
       rec.requestDate = document.getElementById('d-requestDate').value;
@@ -367,7 +368,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
       rec.emergency = document.getElementById('d-emergency').value === 'Yes';
       saveSr();
       logChange('EDIT SR', admin.name, 'SR#' + srNo, rec.client);
-      toast('Sales Request saved', 'success');
+      toast('Service Request saved', 'success');
       renderSrTable();
       openSrDetail(srNo);
     }).catch(() => {});
@@ -420,7 +421,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
         </button>
       </div>
       <div class="detail-actions">
-        <button type="button" class="btn btn-primary" id="detail-btn-save-wo">Save Changes</button>
+        <button type="button" class="btn btn-primary" id="detail-btn-save-wo">Save</button>
       </div>`;
     document.getElementById('detail-overlay').classList.add('open');
     document.getElementById('detail-btn-save-wo').onclick = () => saveWoDetail(woNo);
@@ -521,7 +522,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
 
   // ---------- ADD ----------
   function addSr() {
-    requestAuth('add new Sales Request').then(admin => {
+    requestAuth('add new Service Request').then(admin => {
       const no = nextSrNo();
       srRecords.push({
         sr: no,
@@ -581,7 +582,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
   function askDelete(kind, id) {
     deleteTarget = { kind, id };
     document.getElementById('delete-title').textContent =
-      kind === 'sr' ? 'Delete Sales Request SR#' + id + '?' : 'Delete Work Order WO#' + id + '?';
+      kind === 'sr' ? 'Delete Service Request SR#' + id + '?' : 'Delete Work Order WO#' + id + '?';
     document.getElementById('delete-modal').classList.add('open');
   }
   function confirmDelete() {
@@ -634,7 +635,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(60);
-    doc.text(kind === 'sr' ? 'SALES REQUEST REGISTER' : 'WORK ORDER REGISTER', M, y + 9);
+    doc.text(kind === 'sr' ? 'SERVICE REQUEST REGISTER' : 'WORK ORDER REGISTER', M, y + 9);
     doc.setFontSize(7);
     doc.text('CONTROLLED DOCUMENT  ·  ' + new Date().toLocaleString('en-GB'), M, y + 13);
     y += 18;
@@ -673,7 +674,7 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
         r.sr ? 'SR#' + r.sr : '—'
       ]);
     }
-    const fname = (kind === 'sr' ? 'SR-Register' : 'WO-Register') + '-' +
+    const fname = (kind === 'sr' ? 'Service-Request-Register' : 'Work-Order-Register') + '-' +
       new Date().toISOString().slice(0, 10) + '.pdf';
     doc.save(fname);
     toast('PDF exported: ' + fname, 'success');
@@ -867,8 +868,10 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     document.getElementById('audit-close').onclick = () =>
       document.getElementById('audit-modal').classList.remove('open');
 
-    renderSrTable();
-    renderWoTable();
+    // Restore last active section so switching device apps/tabs does not reset view
+    let savedSec = 'sr';
+    try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {}
+    showSection(savedSec === 'wo' ? 'wo' : 'sr');
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

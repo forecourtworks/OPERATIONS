@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0d264d" />
-  <title>Forecourt Works Ltd | SR & WO Registers</title>
+  <title>Forecourt Works Ltd | Service Request & Work Order Registers</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -48,41 +48,67 @@
       margin-bottom: 10px;
     }
     .header-top img {
-      width: 100px;
+      width: 110px;
       height: auto;
-      max-height: 36px;
-      background: #fff;
-      border-radius: 5px;
-      padding: 3px;
+      max-height: 40px;
+      background: transparent;
+      border-radius: 0;
+      padding: 0;
       object-fit: contain;
     }
     .header-top h1 { font-size: 1.1rem; font-weight: 700; }
     .header-top .tag { font-size: 0.68rem; opacity: 0.85; }
     .header-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-    /* Section tabs */
+    /* Section tabs — distinct colour blocks with clear separation */
     .section-tabs {
       display: flex;
-      gap: 0;
-      border-bottom: 2px solid rgba(255,255,255,0.15);
+      gap: 14px;
+      padding: 0 0 12px;
+      border-bottom: none;
     }
     .section-tab {
-      padding: 10px 22px;
-      font-weight: 600;
-      font-size: 0.88rem;
-      color: rgba(255,255,255,0.7);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
-      font-family: inherit;
-    }
-    .section-tab:hover { color: white; }
-    .section-tab.active {
-      color: white;
-      border-bottom-color: var(--accent);
+      flex: 1;
+      max-width: 420px;
+      padding: 12px 18px 14px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+      color: rgba(255,255,255,0.85);
       background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.18);
+      border-radius: 10px 10px 0 0;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      line-height: 1.25;
+      transition: all 0.15s;
     }
+    .section-tab .tab-sub {
+      display: block;
+      font-weight: 500;
+      font-size: 0.68rem;
+      opacity: 0.8;
+      margin-top: 3px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .section-tab:hover {
+      background: rgba(255,255,255,0.14);
+      color: white;
+    }
+    .section-tab[data-section="sr"].active {
+      background: #0e7490;
+      border-color: #22d3ee;
+      color: white;
+      box-shadow: 0 4px 12px rgba(14,116,144,0.35);
+    }
+    .section-tab[data-section="wo"].active {
+      background: var(--accent);
+      border-color: #fdba74;
+      color: white;
+      box-shadow: 0 4px 12px rgba(217,115,13,0.35);
+    }
+    .section-tab.active .tab-sub { opacity: 0.95; }
     /* Toolbar */
     .toolbar {
       background: var(--card);
@@ -93,7 +119,7 @@
       gap: 10px;
       align-items: flex-end;
       position: sticky;
-      top: 98px;
+      top: 118px;
       z-index: 90;
       box-shadow: 0 1px 4px rgba(0,0,0,0.04);
     }
@@ -222,6 +248,19 @@
       white-space: nowrap;
     }
     .btn-expand:hover { background: #bae6fd; }
+    .btn-edit {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-edit:hover { background: #fde68a; }
     .btn-convert {
       background: var(--danger);
       color: white;
@@ -417,8 +456,14 @@
       </div>
     </div>
     <div class="section-tabs">
-      <button type="button" class="section-tab active" data-section="sr">Sales Request Register</button>
-      <button type="button" class="section-tab" data-section="wo">Work Order Register</button>
+      <button type="button" class="section-tab active" data-section="sr">
+        SERVICE REQUEST REGISTER
+        <span class="tab-sub">Record all incoming work requests here</span>
+      </button>
+      <button type="button" class="section-tab" data-section="wo">
+        WORK ORDER REGISTER
+        <span class="tab-sub">Authorised jobs · internal control</span>
+      </button>
     </div>
   </header>
 
@@ -455,7 +500,7 @@
       <button type="button" class="btn btn-outline btn-sm" id="sr-btn-reset">Reset</button>
       <div class="spacer"></div>
       <span class="view-info" id="sr-view-info">—</span>
-      <button type="button" class="btn btn-primary btn-sm" id="sr-btn-add">+ ADD SR</button>
+      <button type="button" class="btn btn-primary btn-sm" id="sr-btn-add">+ ADD SERVICE REQUEST</button>
       <button type="button" class="btn btn-outline btn-sm" id="sr-btn-export">Export PDF</button>
     </div>
     <div class="container">
@@ -475,7 +520,7 @@
           </thead>
           <tbody id="sr-tbody"></tbody>
         </table>
-        <div class="empty-state" id="sr-empty" style="display:none;">No sales requests yet. Click + ADD SR to create the first entry (SR#00071).</div>
+        <div class="empty-state" id="sr-empty" style="display:none;">No service requests yet. Click + ADD SERVICE REQUEST to create the first entry (SR#00071).</div>
       </div>
     </div>
   </div>
@@ -514,7 +559,7 @@
       <button type="button" class="btn btn-outline btn-sm" id="wo-btn-reset">Reset</button>
       <div class="spacer"></div>
       <span class="view-info" id="wo-view-info">—</span>
-      <button type="button" class="btn btn-primary btn-sm" id="wo-btn-add">+ ADD WO</button>
+      <button type="button" class="btn btn-primary btn-sm" id="wo-btn-add">+ ADD WORK ORDER</button>
       <button type="button" class="btn btn-outline btn-sm" id="wo-btn-export">Export PDF</button>
     </div>
     <div class="container">
