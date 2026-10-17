@@ -1,23 +1,14 @@
-FORECOURT WORKS LTD - Service Requests, Work Orders & Quotations (one UI, 3 tabs)
-=================================================================================
-Run:   cd fsw-platform && python3 -m http.server 8080   ->  http://localhost:8080
-(Serve over http so all three tabs share the same browser storage.)
+FORECOURT WORKS - Service Requests > Quotations > Work Orders (flat folder, GitHub Pages ready)
+==========================================================================================
+Upload ALL files into the repository root (same folder). Open index.html (the site root).
 
-Folders
-  index.html, app.js   Shell: Service Request > Quotation > Work Order tabs (process-flow order)
-  quotes/              The quotation app. Runs inside the Quotation tab AND on its own
-                       (open quotes/index.html directly).
+index.html          3-tab shell (Service Request | Quotation | Work Order)
+registers-app.js    shell logic
+registers-logo-mark.png   white logo for the shell header
+quotation.html      Quotation Builder (also opens on its own)
+quotation-app.js    quotation logic
+fsw-pdf-theme.js, forecourt-logo-mark.png, Roboto-*.ttf, sig-*.png   quotation PDF assets
 
-Direct links
-  #sr  #wo  #qt                 open that tab
-  #sr/00071  #wo/00071          open that record
-  #qt/00068                     open that quotation
-  quotes/index.html#new&sr=00071&client=ACME      new quotation, standalone
-  quotes/index.html#open&qt=00068                 existing quotation, standalone
-
-Workflow
-  SR or WO row / detail -> "Quotation" / "Create Quotation" -> Quotation tab, pre-filled.
-  The quotation number is written back to the SR / WO record.
-  Numbering continues from QT#00067 (next = QT#00068), shared by all three entry points.
-  "Quotation Accepted?" on an SR is informational only; Convert to WO needs only
-  Qualified (or Emergency).
+Links:  #sr  #wo  #qt  #sr/00071  #wo/00071  #qt/00068
+        quotation.html#new&sr=00071&client=ACME   |   quotation.html#open&qt=00068
+Quote numbers continue from QT#00067 (next QT#00068).

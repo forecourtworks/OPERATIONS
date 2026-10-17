@@ -14,6 +14,10 @@
   const MARGIN = 13;
 
   const STORAGE_KEY = 'fsw_quotation_v1';
+  const STORE_KEY = 'fsw_quote_store_v1';       // full state per quotation number
+  const REGISTER_KEY = 'fsw_quote_register_v1'; // light register used for numbering
+  const QT_LAST_ISSUED = 67;                    // numbering continues from QT#00067
+  let link = { srNo: '', woNo: '' };            // SR / WO this quotation belongs to
   let items = [];
   let terms = [];
   let itemIdSeq = 1;
@@ -1022,7 +1026,8 @@
       terms: terms.map(t => ({ id: t.id, text: t.text })),
       itemIdSeq,
       termIdSeq,
-      signatures
+      signatures,
+      link: { srNo: link.srNo || '', woNo: link.woNo || '' }
     };
   }
 
@@ -1034,11 +1039,78 @@
 
   function saveState() {
     if (suppressSave) return;
+    let state = null;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState()));
+      state = collectState();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (err) {
       console.warn('Could not save quotation state', err);
     }
+    if (state) { storeQuotation(state); notifyParent('fsw-quote-updated'); }
+  }
+
+  // ---------- quotation numbering, store and register ----------
+  function pad5(n) { return String(n).padStart(5, '0'); }
+  function qtNumber(str) {
+    const m = /QT#?\s*0*(\d+)/i.exec(String(str || ''));
+    return m ? parseInt(m[1], 10) : null;
+  }
+  function readJson(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch (_) { return fallback; }
+  }
+  function nextQtNo() {
+    let max = QT_LAST_ISSUED;
+    const reg = readJson(REGISTER_KEY, []);
+    if (Array.isArray(reg)) reg.forEach(r => { if (r && r.n > max) max = r.n; });
+    const cur = qtNumber($('qtNo') && $('qtNo').value);
+    if (cur && cur > max) max = cur;
+    return 'QT#' + pad5(max + 1);
+  }
+  function storeQuotation(state) {
+    const qt = state.fields && state.fields.qtNo;
+    const n = qtNumber(qt);
+    if (!n) return;
+    const key = 'QT#' + pad5(n);
+    let total = 0;
+    try { total = recalc().final; } catch (_) {}
+    // register (numbering + SR/WO link)
+    const reg = readJson(REGISTER_KEY, []);
+    const entry = {
+      qt: key, n, srNo: link.srNo || '', woNo: link.woNo || '',
+      client: state.fields.customer || '', scope: state.fields.scopeTitle || '',
+      total, date: state.fields.qtDate || '', at: new Date().toISOString()
+    };
+    const i = reg.findIndex(r => r.n === n);
+    if (i >= 0) reg[i] = entry; else reg.push(entry);
+    try { localStorage.setItem(REGISTER_KEY, JSON.stringify(reg)); } catch (_) {}
+    // full state per number (default signatures are re-applied on load, so skip them)
+    const slim = JSON.parse(JSON.stringify(state));
+    ['sigCreator', 'sigApprover'].forEach(id => {
+      const sg = slim.signatures && slim.signatures[id];
+      if (sg && sg.data === DEFAULT_SIG_DATA[id]) slim.signatures[id] = null;
+    });
+    const store = readJson(STORE_KEY, {});
+    store[key] = slim;
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(store));
+    } catch (_) {
+      // storage full: drop photos from the other saved quotations and retry once
+      Object.keys(store).forEach(k => {
+        if (k !== key && store[k] && store[k].items) store[k].items.forEach(it => { it.imageDataUrl = null; });
+      });
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { console.warn('Quotation store full', e); }
+    }
+  }
+  function currentQtNo() { return ($('qtNo') && $('qtNo').value.trim()) || ''; }
+  function notifyParent(type) {
+    if (window.parent === window) return;
+    const entry = (readJson(REGISTER_KEY, []).find(r => r.n === qtNumber(currentQtNo())) || {});
+    try {
+      window.parent.postMessage({
+        type, qt: currentQtNo(), srNo: link.srNo || '', woNo: link.woNo || '',
+        client: entry.client || '', total: entry.total || 0
+      }, '*');
+    } catch (_) {}
   }
 
   function loadState() {
@@ -1176,10 +1248,12 @@
   }
 
   async function hardReset() {
+    const keepNo = currentQtNo() || nextQtNo();
     try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     suppressSave = true;
     seedSample();
     applyDefaultsToForm();
+    $('qtNo').value = keepNo;
     renderItems();
     renderTerms();
     recalc();
@@ -1188,8 +1262,8 @@
     saveState();
   }
 
-  function restoreOrSeed() {
-    const state = loadState();
+  function restoreOrSeed(given) {
+    const state = given || loadState();
     suppressSave = true;
     if (state && state.version === 1) {
       itemIdSeq = state.itemIdSeq || 1;
@@ -1224,6 +1298,7 @@
           text: 'Ownership of goods remains with Forecourt Works Limited until full payment is received.'
         });
       }
+      link = { srNo: (state.link && state.link.srNo) || '', woNo: (state.link && state.link.woNo) || '' };
       applyFields(state.fields || {});
       if (!$('qtDate').value) $('qtDate').value = todayISO();
       renderItems();
@@ -1270,6 +1345,12 @@
         toast('PDF error: ' + (err.message || err));
       });
     });
+    const btnNew = $('btnNew');
+    if (btnNew) btnNew.addEventListener('click', () => {
+      saveState();
+      newQuotation({}, {});
+      toast('New quotation ' + currentQtNo());
+    });
     $('btnReset').addEventListener('click', async () => {
       if (!confirm('Reset form to defaults? All entered data will be cleared.')) return;
       await hardReset();
@@ -1311,7 +1392,83 @@
   const _renderItems = renderItems;
   // patch save into existing item field handler via scheduleSave calls below
 
+  // ---------- new / open quotation (used by SR and WO tabs, and standalone links) ----------
+  function resetSignaturesAndRedraw(pending) {
+    if (pending) applySignatures(pending); else applySignatures({});
+    loadDefaultSignatures(false);
+  }
+  function newQuotation(prefill, lnk) {
+    prefill = prefill || {};
+    suppressSave = true;
+    link = { srNo: (lnk && lnk.srNo) || '', woNo: (lnk && lnk.woNo) || '' };
+    const no = nextQtNo();
+    seedSample();
+    items = [defaultItem()];
+    applyDefaultsToForm();
+    const f = {
+      qtNo: no,
+      qtType: prefill.qtType || 'Labour & Parts',
+      customer: prefill.client || '',
+      requestedBy: prefill.contact || '',
+      scopeTitle: (prefill.scope || '').toUpperCase().slice(0, 90),
+      labourDesc: '', labourAmt: '0', travelDesc: '', travelAmt: '0', discount: '0', taxRate: '0',
+      sigClientName: ''
+    };
+    Object.keys(f).forEach(id => { if ($(id)) $(id).value = f[id]; });
+    renderItems(); renderTerms(); recalc();
+    suppressSave = false;
+    resetSignaturesAndRedraw(null);
+    saveState();
+    notifyParent('fsw-quote-created');
+  }
+  function openQuotation(qt) {
+    const n = qtNumber(qt);
+    const store = readJson(STORE_KEY, {});
+    const state = n && store['QT#' + pad5(n)];
+    if (!state) return false;
+    const pending = restoreOrSeed(state);
+    resetSignaturesAndRedraw(pending);
+    saveState();
+    return true;
+  }
+  function handleCommand(cmd) {
+    if (!cmd || !cmd.type) return;
+    if (cmd.type === 'fsw-quote-visible') {
+      window.dispatchEvent(new Event('resize')); // re-measure signature pads after the tab is shown
+      return;
+    }
+    if (cmd.type !== 'fsw-quote-open') return;
+    if (cmd.mode === 'open' && cmd.qt && openQuotation(cmd.qt)) {
+      // an SR quotation opened from its WO (or vice versa) gains the extra link
+      if (cmd.link) {
+        if (cmd.link.woNo) link.woNo = cmd.link.woNo;
+        if (cmd.link.srNo && !link.srNo) link.srNo = cmd.link.srNo;
+        saveState();
+      }
+      notifyParent('fsw-quote-opened');
+      return;
+    }
+    if (cmd.mode === 'show') return;                   // just reveal the current draft
+    newQuotation(cmd.prefill, cmd.link);
+  }
+  function readHashCommand() {
+    // standalone deep link:  quotes/index.html#new&sr=00071&client=ACME   |   #open&qt=00068
+    const h = (location.hash || '').replace(/^#/, '');
+    if (!h) return null;
+    const parts = h.split('&');
+    const mode = parts.shift();
+    if (mode !== 'new' && mode !== 'open') return null;
+    const q = {};
+    parts.forEach(kv => { const i = kv.indexOf('='); if (i > 0) q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
+    return {
+      type: 'fsw-quote-open', mode, qt: q.qt ? 'QT#' + q.qt : '',
+      prefill: { client: q.client, contact: q.contact, scope: q.scope, qtType: q.qtType },
+      link: { srNo: q.sr || '', woNo: q.wo || '' }
+    };
+  }
+
   function init() {
+    if (window.parent !== window) document.documentElement.classList.add('embedded');
     const pendingSigs = restoreOrSeed();
     bind();
     ['sigCreator', 'sigApprover', 'sigClient'].forEach(initPad);
@@ -1322,43 +1479,21 @@
       // Always ensure creator/approver defaults if still empty (covers old localStorage)
       loadDefaultSignatures(false);
       saveState();
+      const hashCmd = readHashCommand();
+      if (hashCmd) {
+        handleCommand(hashCmd);
+        try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
+      }
+      if (window.parent !== window) window.parent.postMessage({ type: 'fsw-quote-ready', qt: currentQtNo() }, '*');
     }, 80);
+    window.addEventListener('message', (e) => {
+      if (e.source !== window.parent) return;   // accept commands only from the hosting shell
+      handleCommand(e.data);
+    });
     loadLogo();
     window.addEventListener('beforeunload', saveState);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
-
-
-  // Prefill from parent register (SR → Quotation) via query string or postMessage
-  function applyPrefill(data) {
-    if (!data) return;
-    try {
-      if (data.customer && $('customer')) $('customer').value = data.customer;
-      if (data.requestedBy && $('requestedBy')) $('requestedBy').value = data.requestedBy;
-      if (data.scopeTitle && $('scopeTitle')) $('scopeTitle').value = data.scopeTitle;
-      if (data.sr && $('qtNo')) {
-        // keep QT number; store SR ref in scope if empty note
-      }
-      if (typeof recalc === 'function') recalc();
-      toast('Prefill from Service Request applied');
-    } catch (e) { console.warn(e); }
-  }
-  window.addEventListener('message', function (ev) {
-    if (ev.data && ev.data.type === 'fsw-prefill-quote') applyPrefill(ev.data.data);
-  });
-  (function readQueryPrefill() {
-    try {
-      const sp = new URLSearchParams(location.search || '');
-      if ([...sp.keys()].length === 0) return;
-      applyPrefill({
-        customer: sp.get('customer') || '',
-        requestedBy: sp.get('requestedBy') || '',
-        scopeTitle: sp.get('scopeTitle') || '',
-        sr: sp.get('sr') || ''
-      });
-    } catch (_) {}
-  })();
-
 })();
