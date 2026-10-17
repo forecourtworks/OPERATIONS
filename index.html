@@ -116,7 +116,7 @@
     }
     .section-tab.active .tab-sub { opacity: 0.95; }
     /* Quotation panel */
-    .quote-shell { display: flex; flex-direction: column; height: calc(100vh - 130px); min-height: 480px; }
+    .quote-shell { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 560px; }
     .quote-nav {
       display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
       padding: 10px 16px; background: #ecfdf5; border-bottom: 1px solid #86efac;
@@ -124,8 +124,13 @@
     .quote-nav .hint { font-size: 0.8rem; color: #166534; flex: 1; }
     .quote-frame {
       flex: 1; width: 100%; border: none; background: #fff;
-      min-height: 70vh;
+      min-height: calc(100vh - 200px);
+      height: 100%;
     }
+    /* When panels hidden, keep them out of layout but allow WO pre-render */
+    #section-wo:not(.active) { display: none; }
+    #section-qt:not(.active) { display: none; }
+    #section-sr:not(.active) { display: none; }
     /* Toolbar */
     .toolbar {
       background: var(--card);
@@ -613,6 +618,7 @@
         <button type="button" class="btn btn-outline btn-sm" id="qt-btn-return">← Return</button>
         <span class="hint" id="qt-nav-hint">Standalone quotation workspace. Use Return to go back to the previous register.</span>
         <button type="button" class="btn btn-primary btn-sm" id="qt-btn-refresh" title="Reload quotation form">Refresh form</button>
+        <a class="btn btn-outline btn-sm" id="qt-btn-standalone" href="quotes/index.html" target="_blank" rel="noopener">Open standalone ↗</a>
       </div>
       <iframe id="quote-frame" class="quote-frame" title="Quotation Builder" src="quotes/index.html"></iframe>
     </div>
