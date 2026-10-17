@@ -1,971 +1,1497 @@
 /**
- * FORECOURT WORKS LTD — SR & WO Registers (Controlled Document)
- * Two-section app: Service Request Register + Work Order Register
- * Layered: Overview (summary rows) ↔ Detail (Expand)
- * SR Convert → creates WO, lifts data, opens WO detail
+ * Forecourt Works Ltd — Quotation Builder
+ * PDF follows FSW theme + consolidated design amendments.
  */
 (function () {
   'use strict';
 
-  const SR_KEY = 'fsw_sr_register_v1';
-  const WO_KEY = 'fsw_wo_register_v2';
-  const AUDIT_KEY = 'fsw_registers_audit_v1';
+  const NAVY = [13, 71, 140];
+  const DARK = [15, 23, 42];
+  const GREY = [100, 116, 139];
+  const AMBER = [180, 83, 9];
+  const SOFT = [241, 245, 249];
+  const OUTER = 8;
+  const MARGIN = 13;
 
-  const WO_STATUS = ['Completed', 'Ongoing', 'Pending', 'Started', 'Stopped', 'Cancelled'];
-  const SR_STATUS = ['Received', 'Under Review', 'Qualified', 'Rejected', 'Deferred'];
-  const TYPE_OPTS = ['Labour Only', 'Parts + Labour', 'Parts Only', 'Emergency Repair', 'Preventive Maintenance', 'Calibration', 'Installation / Commissioning', 'Compliance Inspection', 'Other'];
-  const WORK_TYPES = ['Diagnosis & On-Site Corrective Repair + Calibration Verification', 'Preventive Maintenance (PM)', 'Emergency Repair', 'Installation / Commissioning', 'Calibration / Accuracy Verification', 'Compliance Audit / Inspection', 'Cleaning / Filter Change', 'Other'];
+  const STORAGE_KEY = 'fsw_quotation_v1';
+  const STORE_KEY = 'fsw_quote_store_v1';       // full state per quotation number
+  const REGISTER_KEY = 'fsw_quote_register_v1'; // light register used for numbering
+  const QT_LAST_ISSUED = 67;                    // numbering continues from QT#00067
+  let link = { srNo: '', woNo: '' };            // SR / WO this quotation belongs to
+  let items = [];
+  let terms = [];
+  let itemIdSeq = 1;
+  let termIdSeq = 1;
+  const pads = {};
+  const sigFiles = { sigCreator: null, sigApprover: null, sigClient: null };
+  let logoDataUrl = null;
+  let saveTimer = null;
+  let suppressSave = false;
 
-  const ADMINS = [
-    { name: 'Oguta', hash: 'e4dd5bd04b25dd2902a92a4a14217d922dffd0786e2e786d34ae794689871efc' },
-    { name: 'Kamando', hash: '27da462fd0cbe25e7b8c04cb674db6a7a7488fcd16c72ccb1bd86135cb2585b7' }
-  ];
-
-  // Historical WO seed 0001–0068 (commercial columns purged; title → details)
-const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"TYRE INFLATOR INSTALLATION","sr":"","aiDone":false},{"wo":"0002","type":"Labour Only","entry":"24.12.25","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA RD","details":"AST PIPING","sr":"","aiDone":false},{"wo":"0003","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","details":"FDU#4 (WAYNE 3G) KEYPADS","sr":"","aiDone":false},{"wo":"0004","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"PM Inspections & CA","sr":"","aiDone":false},{"wo":"0005","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"PUMWANI","details":"FDU#003 REPAIR","sr":"","aiDone":false},{"wo":"0006","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"KALOLENI","details":"FDU#01, GILBERCO VEEDER ROOT","sr":"","aiDone":false},{"wo":"0007","type":"Parts + Labour","entry":"29.11.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","details":"FDU#2 REPAIR (TOKHEIM)","sr":"","aiDone":false},{"wo":"0008","type":"Parts + Labour","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"SABAKI","details":"COMPRESSED AIR PIPING - Rework","sr":"","aiDone":false},{"wo":"0009","type":"Parts + Labour","entry":"20.12.2025","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"PM Inspections & CA","sr":"","aiDone":false},{"wo":"0010","type":"Labour Only","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","details":"GARAGE EQUIPMENT SERVICING","sr":"","aiDone":false},{"wo":"0011","type":"Labour Only","entry":"10.10.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","details":"WHEEL ALIGNMENT MACHINE INSTALLATION","sr":"","aiDone":false},{"wo":"0012","type":"Parts + Labour","entry":"07.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","details":"GENSET ROOM & M.HOLE REPAIRS","sr":"","aiDone":false},{"wo":"0013","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"TARABI","location":"NAMANGA","details":"AIR COMPRESSOR REPAIR","sr":"","aiDone":false},{"wo":"0014","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"NGONG","details":"FDU CALIBRATION","sr":"","aiDone":false},{"wo":"0015","type":"Parts + Labour","entry":"17.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","details":"FDU PM Inspections & Servicing","sr":"","aiDone":false},{"wo":"0016","type":"Labour Only","entry":"19.01.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"AIR LINE RELOCATION","sr":"","aiDone":false},{"wo":"0017","type":"Labour Only","entry":"20.01.2026","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"AIR COMPRESSOR RELOCATION","sr":"","aiDone":false},{"wo":"0018","type":"","entry":"21.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"MARIAKANI","details":"FDU REPAIR","sr":"","aiDone":false},{"wo":"0019","type":"Labour Only","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"MOMBASA","details":"REWORK - AIR COMPRESSOR REPAIR","sr":"","aiDone":false},{"wo":"0020","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"FDU PM","sr":"","aiDone":false},{"wo":"0021","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Ongoing","client":"TAHMEED","location":"BONJE","details":"REMEDIATION OF UST'S","sr":"","aiDone":false},{"wo":"0022","type":"Parts Only","entry":"03.02.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"FDU's HOSE PURCHASE & DELIVERY","sr":"","aiDone":false},{"wo":"0023","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","details":"FDU MAINTENANCE","sr":"","aiDone":false},{"wo":"0024","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"RADIUS CIRCLE","location":"KILIFI","details":"5T JACK SEALS REPLACEMENT","sr":"","aiDone":false},{"wo":"0025","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"RANWAY","location":"KIKAMBALA","details":"COMPRESSED AIR RETICULATION","sr":"","aiDone":false},{"wo":"0026","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"MANCO","location":"MIKINDANI","details":"UST FABRICATION","sr":"","aiDone":false},{"wo":"0027","type":"Labour Only","entry":"18.02.2026","start":"","end":"","status":"Pending","client":"TRIKAKA","location":"UKUNDA","details":"GENSET SERVICE","sr":"","aiDone":false},{"wo":"0028","type":"Labour Only","entry":"","start":"","end":"","status":"Pending","client":"STARWAYS","location":"PORT REITZ","details":"FUEL SYSTEM PIPING","sr":"","aiDone":false},{"wo":"0029","type":"Labour Only","entry":"07.03.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"AIRGUAGE REPAIR","sr":"","aiDone":false},{"wo":"0030","type":"Parts Only","entry":"","start":"","end":"","status":"Pending","client":"MOSHA","location":"MARIAKANI","details":"MANHOLE COVER GASKET","sr":"","aiDone":false},{"wo":"0031","type":"","entry":"13.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","details":"SUPPLY AND INSTALLATION","sr":"","aiDone":false},{"wo":"0032","type":"Parts Only","entry":"16.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","details":"SAFETY DECALS SUPPLY","sr":"","aiDone":false},{"wo":"0033","type":"Parts + Labour","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"NYALI LINKS RD","location":"MAVUENI","details":"SUPPLY OF STICK ON WEIGHTS","sr":"","aiDone":false},{"wo":"0034","type":"Labour Only","entry":"20.03.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","details":"GENSET PM SERVICE","sr":"","aiDone":false},{"wo":"0035","type":"Parts + Labour","entry":"25.03.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"FDU FLOW RATE RECTIFICATION","sr":"","aiDone":false},{"wo":"0036","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTIDEAL","location":"KOMBANI","details":"AIR COMPRESSOR MAINTENANCE","sr":"","aiDone":false},{"wo":"0037","type":"Labour Only","entry":"06.04.2026","start":"","end":"","status":"Pending","client":"EAGOL","location":"VIPINGO","details":"GARAGE EQ'PMENT INSTALLATION","sr":"","aiDone":false},{"wo":"0038","type":"Labour Only","entry":"07.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"AST#004 LADDER FABRICATION","sr":"","aiDone":false},{"wo":"0039","type":"Labour Only","entry":"08.04.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"FDU TROUBLESHOOTING & REPAIR","sr":"","aiDone":false},{"wo":"0040","type":"Parts + Labour","entry":"10.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"REWORK - CHANGE OF CLOGGED FILTER","sr":"","aiDone":false},{"wo":"0041","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","details":"TANK#002 CLEANING","sr":"","aiDone":false},{"wo":"0042","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","details":"AGO TRANSFER PUMP SERVICING","sr":"","aiDone":false},{"wo":"0043","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"CALIBRATION OF TANK#004","sr":"","aiDone":false},{"wo":"0044","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BONJE","details":"FDU, AST, BLACKMER & STP PM","sr":"","aiDone":false},{"wo":"0045","type":"Parts Only","entry":"18.04.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"SUPPLY OF 2PCS \u00be\" FDU HOSE","sr":"","aiDone":false},{"wo":"0046","type":"Parts + Labour","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"AST#004 PIPING","sr":"","aiDone":false},{"wo":"0047","type":"Labour Only","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"STP MECH/ELECT INSTALLATION TK#004","sr":"","aiDone":false},{"wo":"0048","type":"Labour Only","entry":"04.05.2026","start":"09.07.2026","end":"09.07.2026","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"WHEEL ALIGNMENT MACHINE REPAIR","sr":"","aiDone":false},{"wo":"0049","type":"Parts + Labour","entry":"04.05.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NOMAD","location":"KISERIAN","details":"4 POST LIFT MAINTENANCE","sr":"","aiDone":false},{"wo":"0050","type":"Parts Only","entry":"21.05.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"SUPPLY 3No. FDU V-Belt","sr":"","aiDone":false},{"wo":"0051","type":"Parts + Labour","entry":"02.06.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"WHIP HOSE REPLACEMENT","sr":"","aiDone":false},{"wo":"0052","type":"Parts + Labour","entry":"07.06.2026","start":"07.06.2026","end":"07.06.2026","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","details":"REPAIR AIRGAUGE'S UNRESPONSIVE (+) BUTTON","sr":"","aiDone":false},{"wo":"0053","type":"Parts + Labour","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NEWLIFE","location":"MAVUENI 1","details":"FDU LEAK REPAIR","sr":"","aiDone":false},{"wo":"0054","type":"Parts Only","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","details":"SALE OF TWIN TYRE CONNECTOR","sr":"","aiDone":false},{"wo":"0055","type":"Labour Only","entry":"10.07.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","details":"WHEEL ALIGNER DIAGNOSIS & REPAIR","sr":"","aiDone":false},{"wo":"0056","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"EAGOL-VIPINGO","location":"VIPINGO","details":"UST LID MODIFICATION & STP INSTALLATION","sr":"","aiDone":false},{"wo":"0057","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","details":"AIR COMPRESSOR SERVICE","sr":"","aiDone":false},{"wo":"0058","type":"Labour Only","entry":"27.07.2026","start":"27.07.2026","end":"28.07.2026","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"TYRE INFLATOR HOSE REPLACEMENT","sr":"","aiDone":false},{"wo":"0059","type":"Parts + Labour","entry":"01.08.2026","start":"","end":"","status":"","client":"MASS","location":"VOI","details":"FUEL SYSTEM PIPING","sr":"","aiDone":false},{"wo":"0060","type":"Parts Only","entry":"13.08.2026","start":"13.08.2026","end":"13.08.2026","status":"Completed","client":"MASS","location":"MAKUPA","details":"SUPPLY OF \u00be\" FDU HOSE - 1PC","sr":"","aiDone":false},{"wo":"0061","type":"","entry":"17.08.2026","start":"17.08.2026","end":"17.08.2026","status":"Completed","client":"PMC","location":"NAIROBI","details":"SALES COMMISSION","sr":"","aiDone":false},{"wo":"0062","type":"Labour Only","entry":"17.08.2026","start":"21.08.2026","end":"","status":"","client":"MULTI DEAL","location":"KOMBANI","details":"FRP MANHOLE COVER INSTALLATION","sr":"","aiDone":false},{"wo":"0063","type":"Labour Only","entry":"23.08.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","details":"REPAIR OF LLJ08 FLOWMETER","sr":"","aiDone":false},{"wo":"0064","type":"Labour Only","entry":"05.09.2026","start":"05.09.2026","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","details":"CONDITION INSPECTION","sr":"","aiDone":false},{"wo":"0065","type":"Labour Only","entry":"","start":"","end":"","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","details":"CARWASH REPAIR","sr":"","aiDone":false},{"wo":"0066","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NEW LIFE","location":"MAVUENI","details":"STP INSTALLATION","sr":"","aiDone":false},{"wo":"0067","type":"","entry":"","start":"","end":"","status":"","client":"AINUSHAMSI","location":"PUMWANI","details":"CONDITION INSPECTION","sr":"","aiDone":false},{"wo":"0068","type":"","entry":"","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","details":"MOTOR PROTECTION","sr":"","aiDone":false}];
-
-  let srRecords = [];
-  let woRecords = [];
-  let auditLog = [];
-  let currentSection = 'sr';
-  let detailCtx = null; // { kind: 'sr'|'wo', id: string }
-  let pendingAuth = null;
-  let deleteTarget = null;
-
-  // ---------- utils ----------
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2600);
   }
-  function toast(msg, type) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.className = 'toast show' + (type ? ' ' + type : '');
-    setTimeout(() => el.classList.remove('show'), 3200);
+  function money(n) {
+    return (Number(n) || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  async function sha256Hex(text) {
-    const data = new TextEncoder().encode(text);
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  async function verifyAdmin(name, password) {
-    const n = (name || '').trim().toLowerCase();
-    const hash = await sha256Hex(password || '');
-    return ADMINS.find(a => a.name.toLowerCase() === n && a.hash === hash) || null;
-  }
-  function padNum(n) {
-    return String(n).padStart(5, '0');
-  }
-  function nextSrNo() {
-    let max = 70; // start at 00071
-    srRecords.forEach(r => {
-      const n = parseInt(r.sr, 10);
-      if (!isNaN(n) && n > max) max = n;
-    });
-    return padNum(max + 1);
-  }
-  function nextWoNo() {
-    let max = 70;
-    woRecords.forEach(r => {
-      const n = parseInt(r.wo, 10);
-      if (!isNaN(n) && n > max) max = n;
-    });
-    return padNum(max + 1);
-  }
-  function todayDisp() {
+  function todayISO() {
     const d = new Date();
-    const p = n => String(n).padStart(2, '0');
-    return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2);
+    return d.toISOString().slice(0, 10);
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso + 'T12:00:00');
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
   }
 
-  // ---------- storage ----------
-  function loadAll() {
-    try {
-      const raw = localStorage.getItem(SR_KEY);
-      srRecords = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(srRecords)) srRecords = [];
-    } catch (_) { srRecords = []; }
-    try {
-      const raw = localStorage.getItem(WO_KEY);
-      if (raw) {
-        woRecords = JSON.parse(raw);
-        if (!Array.isArray(woRecords)) woRecords = [];
-      } else {
-        woRecords = JSON.parse(JSON.stringify(WO_SEED));
-        saveWo();
-      }
-    } catch (_) {
-      woRecords = JSON.parse(JSON.stringify(WO_SEED));
-    }
-    try {
-      const raw = localStorage.getItem(AUDIT_KEY);
-      auditLog = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(auditLog)) auditLog = [];
-    } catch (_) { auditLog = []; }
-  }
-  function saveSr() {
-    try { localStorage.setItem(SR_KEY, JSON.stringify(srRecords)); } catch (_) {}
-  }
-  function saveWo() {
-    try { localStorage.setItem(WO_KEY, JSON.stringify(woRecords)); } catch (_) {}
-  }
-  function logChange(action, adminName, ref, detail) {
-    auditLog.unshift({
-      action, admin: adminName, ref: ref || '', detail: detail || '',
-      at: new Date().toISOString()
+  // Remove near-black / solid background from product photos
+  function removeBackground(dataUrl) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, c.width, c.height);
+        const d = imageData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          // treat very dark / near-black as background
+          if (r < 28 && g < 28 && b < 28) {
+            d[i + 3] = 0;
+          }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
     });
-    if (auditLog.length > 500) auditLog = auditLog.slice(0, 500);
-    try { localStorage.setItem(AUDIT_KEY, JSON.stringify(auditLog)); } catch (_) {}
   }
 
-  // ---------- auth ----------
-  function requestAuth(actionLabel, meta) {
+  function fileToDataUrl(file) {
     return new Promise((resolve, reject) => {
-      pendingAuth = { resolve, reject, meta: meta || {}, actionLabel };
-      document.getElementById('auth-title').textContent = 'Admin Authorisation Required';
-      document.getElementById('auth-msg').textContent =
-        'Authorise to ' + actionLabel + '. Enter Document Control Admin name and password.';
-      document.getElementById('auth-name').value = '';
-      document.getElementById('auth-pass').value = '';
-      document.getElementById('auth-error').classList.remove('show');
-      document.getElementById('auth-modal').classList.add('open');
-      setTimeout(() => document.getElementById('auth-name').focus(), 50);
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
     });
   }
-  async function onAuthConfirm() {
-    const name = document.getElementById('auth-name').value;
-    const pass = document.getElementById('auth-pass').value;
-    const admin = await verifyAdmin(name, pass);
-    if (!admin) {
-      document.getElementById('auth-error').classList.add('show');
-      return;
-    }
-    document.getElementById('auth-modal').classList.remove('open');
-    const p = pendingAuth;
-    pendingAuth = null;
-    if (p && p.resolve) p.resolve(admin);
-  }
-  function onAuthCancel() {
-    document.getElementById('auth-modal').classList.remove('open');
-    const p = pendingAuth;
-    pendingAuth = null;
-    if (p && p.reject) p.reject(new Error('cancelled'));
-  }
 
-  // ---------- section switch ----------
-  let returnSection = 'sr'; // tab to return to from Quotation
-
-  function showSection(sec, opts) {
-    opts = opts || {};
-    if (sec === 'qt') {
-      // remember where we came from unless already on quote
-      if (currentSection && currentSection !== 'qt') returnSection = currentSection;
-      try { localStorage.setItem('fsw_register_return', returnSection); } catch (_) {}
-    }
-    currentSection = sec;
-    try { localStorage.setItem('fsw_register_section', sec); } catch (_) {}
-    document.querySelectorAll('.section-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.section === sec);
-    });
-    document.getElementById('section-sr').classList.toggle('active', sec === 'sr');
-    document.getElementById('section-wo').classList.toggle('active', sec === 'wo');
-    const qtPanel = document.getElementById('section-qt');
-    if (qtPanel) qtPanel.classList.toggle('active', sec === 'qt');
-    if (sec === 'sr') renderSrTable();
-    else if (sec === 'wo') renderWoTable();
-    else if (sec === 'qt') {
-      const hint = document.getElementById('qt-nav-hint');
-      if (hint) {
-        const from = returnSection === 'wo' ? 'Work Order Register' : 'Service Request Register';
-        hint.textContent = opts.fromSr
-          ? 'Opened from Service Request — complete the quotation, then Return.'
-          : 'Standalone quotation workspace. Return goes back to ' + from + '.';
-      }
-      if (opts.prefill) prefillQuoteFrame(opts.prefill);
-    }
-  }
-
-  function prefillQuoteFrame(data) {
-    const frame = document.getElementById('quote-frame');
-    if (!frame) return;
-    // Pass context via query string + postMessage after load
-    const q = new URLSearchParams();
-    if (data.customer) q.set('customer', data.customer);
-    if (data.requestedBy) q.set('requestedBy', data.requestedBy);
-    if (data.scopeTitle) q.set('scopeTitle', data.scopeTitle);
-    if (data.sr) q.set('sr', data.sr);
-    const base = 'quotes/index.html';
-    const src = q.toString() ? base + '?' + q.toString() : base;
-    frame.onload = function () {
-      try {
-        frame.contentWindow.postMessage({ type: 'fsw-prefill-quote', data: data }, '*');
-      } catch (e) {}
+  // ---------- items ----------
+  function defaultItem() {
+    return {
+      id: itemIdSeq++,
+      name: '',
+      description: '',
+      qty: 1,
+      unit: 'PC',
+      cost: 0,
+      imageDataUrl: null
     };
-    frame.src = src;
   }
 
-  // ---------- SR filters & render ----------
-  function filteredSr() {
-    let list = srRecords.slice();
-    const clientQ = (document.getElementById('sr-q-client').value || '').trim().toLowerCase();
-    const noQ = (document.getElementById('sr-q-no').value || '').trim();
-    const statusQ = document.getElementById('sr-q-status').value;
-    const convQ = document.getElementById('sr-q-converted').value;
-    if (clientQ) list = list.filter(r => (r.client || '').toLowerCase().includes(clientQ));
-    if (noQ) list = list.filter(r => (r.sr || '').includes(noQ));
-    if (statusQ) list = list.filter(r => r.triage === statusQ);
-    if (convQ === 'yes') list = list.filter(r => !!r.convertedWo);
-    if (convQ === 'no') list = list.filter(r => !r.convertedWo);
-    list.sort((a, b) => parseInt(b.sr, 10) - parseInt(a.sr, 10));
-    return list;
-  }
-  function renderSrTable() {
-    const list = filteredSr();
-    const tbody = document.getElementById('sr-tbody');
-    const empty = document.getElementById('sr-empty');
-    document.getElementById('sr-view-info').textContent = list.length + ' of ' + srRecords.length + ' request(s)';
-    if (list.length === 0) {
-      tbody.innerHTML = '';
-      empty.style.display = srRecords.length === 0 ? 'block' : 'block';
-      empty.textContent = srRecords.length === 0
-        ? 'No service requests yet. Click + ADD SR to create the first entry (SR#00071).'
-        : 'No requests match the current filters.';
-      return;
-    }
-    empty.style.display = 'none';
-    tbody.innerHTML = list.map(rec => {
-      const conv = !!rec.convertedWo;
-      const statusClass = 'status-' + (rec.triage || '').replace(/\s/g, '\\ ');
-      return `<tr class="${conv ? 'converted-row' : ''}" data-sr="${esc(rec.sr)}">
-        <td><strong>SR#${esc(rec.sr)}</strong></td>
-        <td>${esc(rec.requestDate || '')}</td>
-        <td>${esc(rec.client || '')}</td>
-        <td>${esc(rec.site || '')}</td>
-        <td class="details-col">${esc(rec.details || '')}</td>
-        <td>${esc(rec.workType || '')}</td>
-        <td><span class="${statusClass}">${esc(rec.triage || '')}</span></td>
-        <td>
-          <div class="row-actions">
-            <button type="button" class="btn-edit" data-action="expand-sr" data-sr="${esc(rec.sr)}">Edit</button>
-            ${conv
-              ? `<span class="mark-converted" title="Converted to WO#${esc(rec.convertedWo)}">✓ Converted</span>`
-              : `<button type="button" class="btn-convert" data-action="convert-sr" data-sr="${esc(rec.sr)}"
-                   ${(rec.triage === 'Qualified' || rec.emergency) ? '' : 'disabled title="Qualify (or set Emergency) before convert"'}>
-                   Convert to WO
-                 </button>`}
-            <button type="button" class="btn btn-outline btn-sm" data-action="delete-sr" data-sr="${esc(rec.sr)}" style="color:var(--danger);border-color:#fecaca;">Delete</button>
+  function renderItems() {
+    const list = $('itemsList');
+    list.innerHTML = '';
+    items.forEach((it, idx) => {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.dataset.id = it.id;
+      row.innerHTML = `
+        <div class="row-num">${idx + 1}</div>
+        <div class="item-body">
+          <div class="grid-2">
+            <div class="field">
+              <label>Item Name</label>
+              <input data-f="name" value="${escapeAttr(it.name)}" placeholder="e.g. DOL Starter" />
+            </div>
+            <div class="field">
+              <label>Unit Cost (KES)</label>
+              <input type="number" data-f="cost" value="${it.cost}" min="0" step="0.01" />
+            </div>
           </div>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
-  // ---------- WO filters & render ----------
-  function filteredWo() {
-    let list = woRecords.slice();
-    const clientQ = (document.getElementById('wo-q-client').value || '').trim().toLowerCase();
-    const noQ = (document.getElementById('wo-q-no').value || '').trim();
-    const statusQ = document.getElementById('wo-q-status').value;
-    if (clientQ) list = list.filter(r => (r.client || '').toLowerCase().includes(clientQ));
-    if (noQ) list = list.filter(r => (r.wo || '').includes(noQ));
-    if (statusQ) list = list.filter(r => r.status === statusQ);
-    // simple date filter left for later refinement
-    list.sort((a, b) => parseInt(b.wo, 10) - parseInt(a.wo, 10));
-    return list;
-  }
-  function renderWoTable() {
-    const list = filteredWo();
-    const tbody = document.getElementById('wo-tbody');
-    document.getElementById('wo-view-info').textContent = list.length + ' of ' + woRecords.length + ' work order(s)';
-    tbody.innerHTML = list.map(rec => {
-      const statusClass = 'status-' + (rec.status || '').replace(/\s/g, '');
-      return `<tr data-wo="${esc(rec.wo)}">
-        <td><strong>WO#${esc(rec.wo)}</strong>${rec.sr ? '<div style="font-size:0.65rem;color:#6b7280">from SR#' + esc(rec.sr) + '</div>' : ''}</td>
-        <td>${esc(rec.type || '')}</td>
-        <td>${esc(rec.entry || '')}</td>
-        <td>${esc(rec.start || '')}</td>
-        <td>${esc(rec.end || '')}</td>
-        <td><span class="${statusClass}">${esc(rec.status || '')}</span></td>
-        <td>${esc(rec.client || '')}</td>
-        <td>${esc(rec.location || '')}</td>
-        <td class="details-col">${esc(rec.details || '')}</td>
-        <td>
-          <div class="row-actions">
-            <button type="button" class="btn-edit" data-action="expand-wo" data-wo="${esc(rec.wo)}">Edit</button>
-            <button type="button" class="btn btn-outline btn-sm" data-action="delete-wo" data-wo="${esc(rec.wo)}" style="color:var(--danger);border-color:#fecaca;">Delete</button>
+          <div class="field">
+            <label>Description</label>
+            <textarea data-f="description" rows="2">${escapeHtml(it.description)}</textarea>
           </div>
-        </td>
-      </tr>`;
-    }).join('');
-  }
+          <div class="grid-3">
+            <div class="field">
+              <label>Qty</label>
+              <input type="number" data-f="qty" value="${it.qty}" min="1" step="1" />
+            </div>
+            <div class="field">
+              <label>Unit</label>
+              <input data-f="unit" value="${escapeAttr(it.unit)}" />
+            </div>
+            <div class="field">
+              <label>Line Total</label>
+              <input readonly value="${money(it.qty * it.cost)}" style="background:#f8fafc;font-weight:600;color:#0D478C;" />
+            </div>
+          </div>
+          <div class="item-actions">
+            <label class="btn btn-ghost btn-sm">+ ADD IMAGE
+              <input type="file" accept="image/*" class="hidden" data-img="${it.id}" />
+            </label>
+            <img class="img-preview ${it.imageDataUrl ? 'show' : ''}" data-prev="${it.id}" src="${it.imageDataUrl || ''}" alt="" />
+            ${it.imageDataUrl ? '<button type="button" class="btn btn-danger btn-sm" data-rmimg="' + it.id + '">Remove image</button>' : ''}
+            ${items.length > 1 ? '<button type="button" class="btn btn-danger btn-sm" data-rm="' + it.id + '">Remove item</button>' : ''}
+          </div>
+        </div>`;
+      list.appendChild(row);
+    });
 
-  // ---------- Detail views ----------
-  function openSrDetail(srNo) {
-    const rec = srRecords.find(r => r.sr === srNo);
-    if (!rec) return;
-    detailCtx = { kind: 'sr', id: srNo };
-    document.getElementById('detail-title').textContent = 'Service Request SR#' + srNo;
-    document.getElementById('detail-meta').textContent =
-      (rec.convertedWo ? 'Converted to WO#' + rec.convertedWo + ' · ' : '') +
-      (rec.triage || '') + ' · ' + (rec.client || '');
-    const body = document.getElementById('detail-body');
-    body.innerHTML = `
-      <div class="detail-grid">
-        <div class="detail-field"><label>SR Number</label><input type="text" id="d-sr" value="${esc(rec.sr)}" readonly /></div>
-        <div class="detail-field"><label>Request Date</label><input type="text" id="d-requestDate" value="${esc(rec.requestDate || '')}" placeholder="DD.MM.YYYY" /></div>
-        <div class="detail-field"><label>Client / Asset Owner</label><input type="text" id="d-client" value="${esc(rec.client || '')}" /></div>
-        <div class="detail-field"><label>Site / Station</label><input type="text" id="d-site" value="${esc(rec.site || '')}" /></div>
-        <div class="detail-field"><label>Site Contact Name</label><input type="text" id="d-contact" value="${esc(rec.contact || '')}" /></div>
-        <div class="detail-field"><label>Site Contact Phone</label><input type="text" id="d-phone" value="${esc(rec.phone || '')}" /></div>
-        <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
-        <div class="detail-field"><label>Equipment Category</label>
-          <select id="d-equipCat">
-            ${['','Fuel Dispenser','UST','AST','Piping','Generator','Air Compressor','Other'].map(o =>
-              `<option value="${o}" ${rec.equipCat === o ? 'selected' : ''}>${o || '— Select —'}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field full"><label>Equipment Description (all equipment-specific details)</label>
-          <textarea id="d-equipDesc" rows="2">${esc(rec.equipDesc || '')}</textarea></div>
-        <div class="detail-field"><label>Manufacturer / Model</label><input type="text" id="d-mfr" value="${esc(rec.mfr || '')}" /></div>
-        <div class="detail-field"><label>Serial Number</label><input type="text" id="d-serial" value="${esc(rec.serial || '')}" /></div>
-        <div class="detail-field"><label>Location on Site</label><input type="text" id="d-locOnSite" value="${esc(rec.locOnSite || '')}" /></div>
-        <div class="detail-field"><label>Work Type</label>
-          <select id="d-workType">
-            ${WORK_TYPES.map(o => `<option value="${o}" ${rec.workType === o ? 'selected' : ''}>${o}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field full"><label>Job Details / Reported Problem</label>
-          <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
-        <div class="detail-field"><label>Channel Received</label>
-          <select id="d-channel">
-            ${['Phone','WhatsApp','Email','Walk-in','Portal','Other'].map(o =>
-              `<option value="${o}" ${rec.channel === o ? 'selected' : ''}>${o}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field"><label>Triage Status</label>
-          <select id="d-triage">
-            ${SR_STATUS.map(o => `<option value="${o}" ${rec.triage === o ? 'selected' : ''}>${o}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field"><label>Quotation Required?</label>
-          <select id="d-quoteReq">
-            <option value="No" ${rec.quoteReq === 'No' ? 'selected' : ''}>NO</option>
-            <option value="Later" ${rec.quoteReq === 'Later' || rec.quoteReq === 'Yes' ? 'selected' : ''}>YES (Create Quote Later)</option>
-            <option value="Now" ${rec.quoteReq === 'Now' ? 'selected' : ''}>YES (Create Quote Now)</option>
-          </select>
-        </div>
-        <div class="detail-field full" id="d-quote-now-wrap" style="display:none;">
-          <button type="button" class="btn btn-success" id="detail-btn-goto-quote">Open Quotation Builder →</button>
-        </div>
-        <div class="detail-field"><label>Quotation Accepted?</label>
-          <select id="d-quoteAcc">
-            <option value="Pending" ${rec.quoteAcc === 'Pending' ? 'selected' : ''}>Pending</option>
-            <option value="Yes" ${rec.quoteAcc === 'Yes' ? 'selected' : ''}>Yes</option>
-            <option value="No" ${rec.quoteAcc === 'No' ? 'selected' : ''}>No</option>
-          </select>
-        </div>
-        <div class="detail-field"><label>Emergency / Direct-to-WO</label>
-          <select id="d-emergency">
-            <option value="No" ${!rec.emergency ? 'selected' : ''}>No</option>
-            <option value="Yes" ${rec.emergency ? 'selected' : ''}>Yes</option>
-          </select>
-        </div>
-        <div class="detail-field"><label>Converted to WO</label>
-          <input type="text" value="${esc(rec.convertedWo ? 'WO#' + rec.convertedWo : '—')}" readonly /></div>
-      </div>
-      <div class="detail-actions">
-        <button type="button" class="btn btn-primary" id="detail-btn-save-sr">Save</button>
-        ${!rec.convertedWo && (rec.triage === 'Qualified' || rec.emergency)
-          ? '<button type="button" class="btn btn-accent" id="detail-btn-convert">Convert to Work Order</button>'
-          : ''}
-      </div>`;
-    document.getElementById('detail-overlay').classList.add('open');
-    const saveBtn = document.getElementById('detail-btn-save-sr');
-    if (saveBtn) saveBtn.onclick = () => saveSrDetail(srNo);
-    const convBtn = document.getElementById('detail-btn-convert');
-    if (convBtn) convBtn.onclick = () => convertSr(srNo);
-    const qSel = document.getElementById('d-quoteReq');
-    const qWrap = document.getElementById('d-quote-now-wrap');
-    function syncQuoteNowUi() {
-      if (qWrap) qWrap.style.display = (qSel && qSel.value === 'Now') ? '' : 'none';
-    }
-    if (qSel) {
-      qSel.addEventListener('change', () => {
-        syncQuoteNowUi();
-        if (qSel.value === 'Now') {
-          // Auto-redirect to Quotation tab with SR context
-          goToQuoteFromSr(srNo);
+    list.querySelectorAll('input, textarea').forEach(el => {
+      el.addEventListener('input', onItemField);
+      el.addEventListener('change', onItemField);
+    });
+    list.querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => {
+      items = items.filter(x => x.id !== Number(b.dataset.rm));
+      renderItems();
+      recalc();
+      scheduleSave();
+    }));
+    list.querySelectorAll('[data-rmimg]').forEach(b => b.addEventListener('click', () => {
+      const it = items.find(x => x.id === Number(b.dataset.rmimg));
+      if (it) { it.imageDataUrl = null; renderItems(); scheduleSave(); }
+    }));
+    list.querySelectorAll('input[type=file][data-img]').forEach(inp => {
+      inp.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const it = items.find(x => x.id === Number(inp.dataset.img));
+        if (!it) return;
+        try {
+          let url = await fileToDataUrl(file);
+          url = await removeBackground(url);
+          it.imageDataUrl = url;
+          renderItems();
+          scheduleSave();
+          toast('Image attached (background cleaned)');
+        } catch (_) {
+          toast('Could not load image');
         }
       });
-      syncQuoteNowUi();
-    }
-    const gotoQ = document.getElementById('detail-btn-goto-quote');
-    if (gotoQ) gotoQ.onclick = () => goToQuoteFromSr(srNo);
-  }
-
-  function goToQuoteFromSr(srNo) {
-    const rec = srRecords.find(r => r.sr === srNo);
-    if (!rec) return;
-    // Persist quote choice
-    rec.quoteReq = 'Now';
-    saveSr();
-    closeDetail();
-    showSection('qt', {
-      fromSr: true,
-      prefill: {
-        sr: rec.sr,
-        customer: [rec.client, rec.site].filter(Boolean).join(' · '),
-        requestedBy: rec.contact || '',
-        scopeTitle: rec.details || rec.workType || ''
-      }
     });
-    toast('Opening Quotation for SR#' + srNo, 'success');
   }
 
-  function saveSrDetail(srNo) {
-    requestAuth('edit Service Request SR#' + srNo).then(admin => {
-      const rec = srRecords.find(r => r.sr === srNo);
-      if (!rec) return;
-      rec.requestDate = document.getElementById('d-requestDate').value;
-      rec.client = document.getElementById('d-client').value;
-      rec.site = document.getElementById('d-site').value;
-      rec.contact = document.getElementById('d-contact').value;
-      rec.phone = document.getElementById('d-phone').value;
-      rec.equipId = document.getElementById('d-equipId').value;
-      rec.equipCat = document.getElementById('d-equipCat').value;
-      rec.equipDesc = document.getElementById('d-equipDesc').value;
-      rec.mfr = document.getElementById('d-mfr').value;
-      rec.serial = document.getElementById('d-serial').value;
-      rec.locOnSite = document.getElementById('d-locOnSite').value;
-      rec.workType = document.getElementById('d-workType').value;
-      rec.details = document.getElementById('d-details').value;
-      rec.channel = document.getElementById('d-channel').value;
-      rec.triage = document.getElementById('d-triage').value;
-      rec.quoteReq = document.getElementById('d-quoteReq').value;
-      rec.quoteAcc = document.getElementById('d-quoteAcc').value;
-      rec.emergency = document.getElementById('d-emergency').value === 'Yes';
-      saveSr();
-      logChange('EDIT SR', admin.name, 'SR#' + srNo, rec.client);
-      toast('Service Request saved', 'success');
-      renderSrTable();
-      openSrDetail(srNo);
-    }).catch(() => {});
-  }
-
-  function openWoDetail(woNo) {
-    const rec = woRecords.find(r => r.wo === woNo);
-    if (!rec) return;
-    detailCtx = { kind: 'wo', id: woNo };
-    document.getElementById('detail-title').textContent = 'Work Order WO#' + woNo;
-    document.getElementById('detail-meta').textContent =
-      (rec.sr ? 'from SR#' + rec.sr + ' · ' : '') + (rec.status || '') + ' · ' + (rec.client || '');
-    const body = document.getElementById('detail-body');
-    body.innerHTML = `
-      <div class="detail-grid">
-        <div class="detail-field"><label>WO Number</label><input type="text" value="WO#${esc(rec.wo)}" readonly /></div>
-        <div class="detail-field"><label>Linked SR</label><input type="text" value="${esc(rec.sr ? 'SR#' + rec.sr : '—')}" readonly /></div>
-        <div class="detail-field"><label>Type</label>
-          <select id="d-type">
-            ${TYPE_OPTS.map(o => `<option value="${o}" ${rec.type === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field"><label>Status</label>
-          <select id="d-status">
-            ${WO_STATUS.map(o => `<option value="${o}" ${rec.status === o ? 'selected' : ''}>${o}</option>`).join('')}
-          </select>
-        </div>
-        <div class="detail-field"><label>Entry Date</label><input type="text" id="d-entry" value="${esc(rec.entry || '')}" placeholder="DD.MM.YYYY" /></div>
-        <div class="detail-field"><label>Start Date</label><input type="text" id="d-start" value="${esc(rec.start || '')}" placeholder="DD.MM.YYYY" /></div>
-        <div class="detail-field"><label>End Date</label><input type="text" id="d-end" value="${esc(rec.end || '')}" placeholder="DD.MM.YYYY" /></div>
-        <div class="detail-field"><label>Client</label><input type="text" id="d-client" value="${esc(rec.client || '')}" /></div>
-        <div class="detail-field"><label>Location</label><input type="text" id="d-location" value="${esc(rec.location || '')}" /></div>
-        <div class="detail-field full"><label>Job Details</label>
-          <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
-        <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
-        <div class="detail-field"><label>Equipment Category</label><input type="text" id="d-equipCat" value="${esc(rec.equipCat || '')}" /></div>
-        <div class="detail-field full"><label>Equipment Description</label>
-          <textarea id="d-equipDesc" rows="2">${esc(rec.equipDesc || '')}</textarea></div>
-        <div class="detail-field"><label>Work Type</label><input type="text" id="d-workType" value="${esc(rec.workType || '')}" /></div>
-        <div class="detail-field"><label>Site Contact</label><input type="text" id="d-contact" value="${esc(rec.contact || '')}" /></div>
-      </div>
-      <div class="ai-box">
-        <h4>AI-assisted Work Order document</h4>
-        <p>AI will read the register data above, categorise by Type of Work, and complete the full Work Order document from the pre-built template. Templates will be embedded in a later stage; this button prepares the framework.</p>
-        <button type="button" class="btn btn-accent" id="detail-btn-ai" ${rec.aiDone ? 'disabled' : ''}>
-          ${rec.aiDone ? '✓ WO document created with AI' : 'Create WO with AI'}
-        </button>
-        <button type="button" class="btn btn-success" id="detail-btn-wopdf" style="margin-left:8px;${rec.aiDone ? '' : 'display:none'}">
-          Convert to PDF
-        </button>
-      </div>
-      <div class="detail-actions">
-        <button type="button" class="btn btn-primary" id="detail-btn-save-wo">Save</button>
-      </div>`;
-    document.getElementById('detail-overlay').classList.add('open');
-    document.getElementById('detail-btn-save-wo').onclick = () => saveWoDetail(woNo);
-    const aiBtn = document.getElementById('detail-btn-ai');
-    if (aiBtn && !rec.aiDone) aiBtn.onclick = () => runAiCreateWo(woNo);
-    const pdfBtn = document.getElementById('detail-btn-wopdf');
-    if (pdfBtn) pdfBtn.onclick = () => exportSingleWoPdf(woNo);
-  }
-
-  function saveWoDetail(woNo) {
-    requestAuth('edit Work Order WO#' + woNo).then(admin => {
-      const rec = woRecords.find(r => r.wo === woNo);
-      if (!rec) return;
-      rec.type = document.getElementById('d-type').value;
-      rec.status = document.getElementById('d-status').value;
-      rec.entry = document.getElementById('d-entry').value;
-      rec.start = document.getElementById('d-start').value;
-      rec.end = document.getElementById('d-end').value;
-      rec.client = document.getElementById('d-client').value;
-      rec.location = document.getElementById('d-location').value;
-      rec.details = document.getElementById('d-details').value;
-      rec.equipId = document.getElementById('d-equipId').value;
-      rec.equipCat = document.getElementById('d-equipCat').value;
-      rec.equipDesc = document.getElementById('d-equipDesc').value;
-      rec.workType = document.getElementById('d-workType').value;
-      rec.contact = document.getElementById('d-contact').value;
-      saveWo();
-      logChange('EDIT WO', admin.name, 'WO#' + woNo, rec.client);
-      toast('Work Order saved', 'success');
-      renderWoTable();
-      openWoDetail(woNo);
-    }).catch(() => {});
-  }
-
-  function runAiCreateWo(woNo) {
-    const rec = woRecords.find(r => r.wo === woNo);
-    if (!rec) return;
-    // Framework placeholder — full AI template fill comes later
-    toast('AI framework: categorising work type and preparing WO document…', 'success');
-    setTimeout(() => {
-      rec.aiDone = true;
-      saveWo();
-      toast('WO document draft created. Review and use Convert to PDF when ready.', 'success');
-      openWoDetail(woNo);
-    }, 900);
-  }
-
-  // ---------- Convert SR → WO ----------
-  function convertSr(srNo) {
-    const rec = srRecords.find(r => r.sr === srNo);
-    if (!rec) return;
-    if (rec.convertedWo) {
-      toast('Already converted to WO#' + rec.convertedWo, 'error');
-      return;
+  function onItemField(e) {
+    const row = e.target.closest('.item-row');
+    if (!row) return;
+    const it = items.find(x => x.id === Number(row.dataset.id));
+    if (!it) return;
+    const f = e.target.dataset.f;
+    if (!f) return;
+    if (f === 'qty' || f === 'cost') it[f] = Number(e.target.value) || 0;
+    else it[f] = e.target.value;
+    if (f === 'qty' || f === 'cost') {
+      const totalInp = row.querySelector('input[readonly]');
+      if (totalInp) totalInp.value = money(it.qty * it.cost);
+      recalc();
     }
-    if (rec.triage !== 'Qualified' && !rec.emergency) {
-      toast('SR must be Qualified (or Emergency) before conversion', 'error');
-      return;
-    }
-    requestAuth('convert SR#' + srNo + ' to Work Order').then(admin => {
-      const woNo = nextWoNo();
-      const newWo = {
-        wo: woNo,
-        type: rec.workType && rec.workType.includes('Emergency') ? 'Emergency Repair' :
-              (rec.workType && rec.workType.includes('Preventive') ? 'Preventive Maintenance' : 'Parts + Labour'),
-        entry: todayDisp(),
-        start: '',
-        end: '',
-        status: 'Pending',
-        client: rec.client || '',
-        location: rec.site || '',
-        details: rec.details || '',
-        sr: rec.sr,
-        equipId: rec.equipId || '',
-        equipCat: rec.equipCat || '',
-        equipDesc: rec.equipDesc || '',
-        mfr: rec.mfr || '',
-        serial: rec.serial || '',
-        locOnSite: rec.locOnSite || '',
-        workType: rec.workType || '',
-        contact: rec.contact || '',
-        phone: rec.phone || '',
-        aiDone: false
-      };
-      woRecords.push(newWo);
-      rec.convertedWo = woNo;
-      rec.convertedAt = new Date().toISOString();
-      saveSr();
-      saveWo();
-      logChange('CONVERT SR→WO', admin.name, 'SR#' + srNo + ' → WO#' + woNo, rec.client);
-      toast('Created WO#' + woNo + ' from SR#' + srNo, 'success');
-      // Switch to WO section and open detail
-      showSection('wo');
-      closeDetail();
-      openWoDetail(woNo);
-    }).catch(() => {});
+    scheduleSave();
   }
 
-  // ---------- ADD ----------
-  function addSr() {
-    requestAuth('add new Service Request').then(admin => {
-      const no = nextSrNo();
-      srRecords.push({
-        sr: no,
-        requestDate: todayDisp(),
-        client: '',
-        site: '',
-        contact: '',
-        phone: '',
-        equipId: '',
-        equipCat: '',
-        equipDesc: '',
-        mfr: '',
-        serial: '',
-        locOnSite: '',
-        workType: WORK_TYPES[0],
-        details: '',
-        channel: 'Phone',
-        triage: 'Received',
-        quoteReq: 'No',
-        quoteAcc: 'Pending',
-        emergency: false,
-        convertedWo: '',
-        registeredBy: admin.name
-      });
-      saveSr();
-      logChange('ADD SR', admin.name, 'SR#' + no, '');
-      toast('Created SR#' + no, 'success');
-      renderSrTable();
-      openSrDetail(no);
-    }).catch(() => {});
+  function escapeAttr(s) {
+    return String(s || '').replace(/"/g, '&quot;');
   }
-  function addWo() {
-    requestAuth('add new Work Order').then(admin => {
-      const no = nextWoNo();
-      woRecords.push({
-        wo: no,
-        type: '',
-        entry: todayDisp(),
-        start: '',
-        end: '',
-        status: 'Pending',
-        client: '',
-        location: '',
-        details: '',
-        sr: '',
-        aiDone: false
-      });
-      saveWo();
-      logChange('ADD WO', admin.name, 'WO#' + no, '');
-      toast('Created WO#' + no, 'success');
-      renderWoTable();
-      openWoDetail(no);
-    }).catch(() => {});
+  function escapeHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // ---------- Delete ----------
-  function askDelete(kind, id) {
-    deleteTarget = { kind, id };
-    document.getElementById('delete-title').textContent =
-      kind === 'sr' ? 'Delete Service Request SR#' + id + '?' : 'Delete Work Order WO#' + id + '?';
-    document.getElementById('delete-modal').classList.add('open');
+  // ---------- terms ----------
+  function defaultTerm() {
+    return {
+      id: termIdSeq++,
+      text: 'This quotation is valid for 30 days from the date of issue unless otherwise stated in writing.'
+    };
   }
-  function confirmDelete() {
-    if (!deleteTarget) return;
-    const { kind, id } = deleteTarget;
-    document.getElementById('delete-modal').classList.remove('open');
-    requestAuth('delete ' + (kind === 'sr' ? 'SR#' : 'WO#') + id).then(admin => {
-      if (kind === 'sr') {
-        srRecords = srRecords.filter(r => r.sr !== id);
-        saveSr();
-        logChange('DELETE SR', admin.name, 'SR#' + id, '');
-        renderSrTable();
-      } else {
-        woRecords = woRecords.filter(r => r.wo !== id);
-        saveWo();
-        logChange('DELETE WO', admin.name, 'WO#' + id, '');
-        renderWoTable();
+
+  function renderTerms() {
+    const list = $('termsList');
+    list.innerHTML = '';
+    terms.forEach((t, idx) => {
+      const row = document.createElement('div');
+      row.className = 'term-row';
+      row.dataset.id = t.id;
+      row.innerHTML = `
+        <div class="num">${idx + 1}</div>
+        <input data-term value="${escapeAttr(t.text)}" />
+        ${terms.length > 1 ? '<button type="button" class="btn btn-danger btn-sm" data-rmterm="' + t.id + '">×</button>' : ''}`;
+      list.appendChild(row);
+    });
+    list.querySelectorAll('[data-term]').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const row = e.target.closest('.term-row');
+        const t = terms.find(x => x.id === Number(row.dataset.id));
+        if (t) t.text = e.target.value;
+        scheduleSave();
+      });
+    });
+    list.querySelectorAll('[data-rmterm]').forEach(b => b.addEventListener('click', () => {
+      terms = terms.filter(x => x.id !== Number(b.dataset.rmterm));
+      renderTerms();
+      scheduleSave();
+    }));
+  }
+
+  // ---------- totals ----------
+  function recalc() {
+    const parts = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.cost) || 0), 0);
+    const labour = Number($('labourAmt').value) || 0;
+    const travel = Number($('travelAmt').value) || 0;
+    const sub = parts + labour + travel;
+    const discount = Number($('discount').value) || 0;
+    const taxable = Math.max(0, sub - discount);
+    const rate = Number($('taxRate').value) || 0;
+    const tax = taxable * (rate / 100);
+    const final = taxable + tax;
+    $('sumSub').textContent = money(sub);
+    $('sumTaxable').textContent = money(taxable);
+    $('sumTax').textContent = money(tax);
+    $('sumFinal').textContent = 'KES ' + money(final);
+    return { sub, discount, taxable, tax, final, parts, labour, travel };
+  }
+
+  // ---------- signatures ----------
+  function initPad(id) {
+    const canvas = $(id);
+    const resize = () => {
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * ratio;
+      canvas.height = 110 * ratio;
+      canvas.getContext('2d').scale(ratio, ratio);
+      if (pads[id]) pads[id].clear();
+    };
+    resize();
+    const pad = new SignaturePad(canvas, {
+      backgroundColor: 'rgb(255,255,255)',
+      penColor: 'rgb(15,23,42)'
+    });
+    pads[id] = pad;
+    window.addEventListener('resize', () => {
+      const data = pad.isEmpty() ? null : pad.toData();
+      resize();
+      if (data) pad.fromData(data);
+    });
+  }
+
+  function getSigDataUrl(id) {
+    if (sigFiles[id]) return sigFiles[id];
+    const pad = pads[id];
+    if (pad && !pad.isEmpty()) return pad.toDataURL('image/png');
+    return null;
+  }
+
+  // ---------- PDF ----------
+  function wrapText(doc, text, font, size, maxW) {
+    doc.setFont(font, 'normal');
+    doc.setFontSize(size);
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    words.forEach(w => {
+      const test = (cur + ' ' + w).trim();
+      if (doc.getTextWidth(test) <= maxW) cur = test;
+      else { if (cur) lines.push(cur); cur = w; }
+    });
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [''];
+  }
+
+  /** Preserve hard line breaks from the form (each point on its own line), then wrap long lines. */
+  function wrapMultiline(doc, text, font, size, maxW) {
+    const raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const paragraphs = raw.split('\n');
+    const out = [];
+    paragraphs.forEach((para) => {
+      const trimmed = para.trimEnd();
+      // empty line in source → blank line on PDF
+      if (trimmed === '' && para.length > 0) {
+        out.push('');
+        return;
       }
-      closeDetail();
-      toast('Deleted', 'success');
-      deleteTarget = null;
-    }).catch(() => { deleteTarget = null; });
+      if (trimmed === '') return;
+      const wrapped = wrapText(doc, trimmed, font, size, maxW);
+      wrapped.forEach(ln => out.push(ln));
+    });
+    return out.length ? out : [''];
   }
 
-  function closeDetail() {
-    document.getElementById('detail-overlay').classList.remove('open');
-    detailCtx = null;
+  async function loadLogo() {
+    if (logoDataUrl) return logoDataUrl;
+    try {
+      const res = await fetch('forecourt-logo-mark.png');
+      const blob = await res.blob();
+      logoDataUrl = await new Promise(r => {
+        const fr = new FileReader();
+        fr.onload = () => r(fr.result);
+        fr.readAsDataURL(blob);
+      });
+    } catch (_) {}
+    return logoDataUrl;
   }
 
-  // ---------- PDF (register overview) ----------
-  async function exportRegisterPdf(kind) {
+  async function generatePdf() {
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
-    const M = 10;
-    const navy = [13, 38, 77];
-    let y = M;
+    const usable = pageW - MARGIN * 2;
+    const bottomLimit = pageH - OUTER - 8;
 
-    doc.setDrawColor(...navy);
-    doc.setLineWidth(0.6);
-    doc.rect(6, 6, pageW - 12, pageH - 12);
-    doc.setLineWidth(0.2);
-    doc.rect(7.2, 7.2, pageW - 14.4, pageH - 14.4);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(...navy);
-    doc.text('FORECOURT WORKS LIMITED', M, y + 4);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(60);
-    doc.text(kind === 'sr' ? 'SERVICE REQUEST REGISTER' : 'WORK ORDER REGISTER', M, y + 9);
-    doc.setFontSize(7);
-    doc.text('CONTROLLED DOCUMENT  ·  ' + new Date().toLocaleString('en-GB'), M, y + 13);
-    y += 18;
-
-    const rows = kind === 'sr' ? filteredSr() : filteredWo();
-    if (kind === 'sr') {
-      const cols = [
-        { k: 'sr', l: 'SR No', w: 18 },
-        { k: 'requestDate', l: 'Date', w: 22 },
-        { k: 'client', l: 'Client', w: 40 },
-        { k: 'site', l: 'Site', w: 32 },
-        { k: 'details', l: 'Job Details', w: 70 },
-        { k: 'workType', l: 'Work Type', w: 40 },
-        { k: 'triage', l: 'Triage', w: 28 },
-        { k: 'convertedWo', l: 'WO', w: 18 }
-      ];
-      drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
-        'SR#' + (r.sr || ''), r.requestDate || '', r.client || '', r.site || '',
-        r.details || '', r.workType || '', r.triage || '',
-        r.convertedWo ? 'WO#' + r.convertedWo : '—'
-      ]);
-    } else {
-      const cols = [
-        { k: 'wo', l: 'WO No', w: 18 },
-        { k: 'type', l: 'Type', w: 28 },
-        { k: 'entry', l: 'Entry', w: 20 },
-        { k: 'status', l: 'Status', w: 22 },
-        { k: 'client', l: 'Client', w: 36 },
-        { k: 'location', l: 'Location', w: 30 },
-        { k: 'details', l: 'Job Details', w: 70 },
-        { k: 'sr', l: 'From SR', w: 18 }
-      ];
-      drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
-        'WO#' + (r.wo || ''), r.type || '', r.entry || '', r.status || '',
-        r.client || '', r.location || '', r.details || '',
-        r.sr ? 'SR#' + r.sr : '—'
-      ]);
-    }
-    const fname = (kind === 'sr' ? 'Service-Request-Register' : 'Work-Order-Register') + '-' +
-      new Date().toISOString().slice(0, 10) + '.pdf';
-    doc.save(fname);
-    toast('PDF exported: ' + fname, 'success');
-  }
-
-  function drawPdfTable(doc, cols, rows, startY, M, pageW, pageH, navy, mapRow) {
-    let y = startY;
-    const rowH = 6;
-    function header() {
-      doc.setFillColor(...navy);
-      doc.rect(M, y, pageW - 2 * M, 6, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(255);
-      let x = M + 1;
-      cols.forEach(c => { doc.text(c.l, x, y + 4); x += c.w; });
-      y += 7;
-      doc.setTextColor(30);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-    }
-    header();
-    rows.forEach((r, i) => {
-      if (y > pageH - 14) {
-        doc.addPage();
-        doc.setDrawColor(...navy);
-        doc.setLineWidth(0.6);
-        doc.rect(6, 6, pageW - 12, pageH - 12);
-        y = M + 4;
-        header();
+    // fonts
+    let hasRoboto = false;
+    try {
+      if (window.FSWPdfTheme) {
+        const theme = await window.FSWPdfTheme.create(doc, { title: 'QUOTATION', loadFonts: true, logoDataUrl: await loadLogo() });
+        hasRoboto = theme.hasRoboto;
       }
-      if (i % 2 === 0) {
-        doc.setFillColor(248, 250, 252);
-        doc.rect(M, y - 1, pageW - 2 * M, rowH, 'F');
+    } catch (_) {}
+    // manual font load fallback
+    async function tryFont(file, style) {
+      try {
+        const res = await fetch(file);
+        if (!res.ok) return false;
+        const buf = await res.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        doc.addFileToVFS(file, btoa(binary));
+        doc.addFont(file, 'Roboto', style);
+        return true;
+      } catch (_) { return false; }
+    }
+    if (!hasRoboto) {
+      const a = await tryFont('Roboto-Regular.ttf', 'normal');
+      const b = await tryFont('Roboto-Bold.ttf', 'bold');
+      hasRoboto = a && b;
+    }
+
+    function F(style, size) {
+      if (hasRoboto) doc.setFont('Roboto', style === 'bold' ? 'bold' : 'normal');
+      else doc.setFont('helvetica', style === 'bold' ? 'bold' : 'normal');
+      if (size) doc.setFontSize(size);
+    }
+
+    const logo = await loadLogo();
+
+    function drawFrame() {
+      doc.setDrawColor(...NAVY);
+      doc.setLineWidth(0.65);
+      doc.rect(OUTER, OUTER, pageW - OUTER * 2, pageH - OUTER * 2);
+      doc.setLineWidth(0.22);
+      doc.rect(OUTER + 1.2, OUTER + 1.2, pageW - (OUTER + 1.2) * 2, pageH - (OUTER + 1.2) * 2);
+      if (logo) {
+        try { doc.addImage(logo, 'PNG', pageW - MARGIN - 38, OUTER + 2.8, 36, 6.2); } catch (_) {}
       }
-      const vals = mapRow(r);
-      let x = M + 1;
-      vals.forEach((v, j) => {
-        const t = String(v || '').substring(0, Math.floor(cols[j].w / 1.6));
-        doc.text(t, x, y + 3.5);
-        x += cols[j].w;
+    }
+
+    function drawHeader(title, subtitle, pageNum, totalPages) {
+      drawFrame();
+      let y = OUTER + 4;
+      F('bold', 12);
+      doc.setTextColor(...NAVY);
+      doc.text('FORECOURT WORKS LIMITED', MARGIN, y + 3);
+      F('normal', 7);
+      doc.setTextColor(...DARK);
+      doc.text('Ramco Court, GT 3B, South C, Nairobi  |  +254 729-002-087  |  sales@forecourtworks.co.ke', MARGIN, y + 7.2);
+      F('normal', 8);
+      doc.setTextColor(...AMBER);
+      doc.text('Engineering Reliability Into Every Forecourt', MARGIN, y + 11.2);
+      y += 15;
+      doc.setDrawColor(...NAVY);
+      doc.setLineWidth(0.4);
+      doc.line(MARGIN, y, pageW - MARGIN, y);
+      y += 5;
+      F('bold', 14);
+      doc.setTextColor(...NAVY);
+      doc.text(title, pageW / 2, y, { align: 'center' });
+      y += 5;
+      if (subtitle) {
+        doc.setFillColor(...SOFT);
+        doc.roundedRect(MARGIN, y, usable, 8, 1.2, 1.2, 'F');
+        F('bold', 9);
+        doc.setTextColor(...NAVY);
+        doc.text(subtitle, pageW / 2, y + 5.3, { align: 'center' });
+        y += 11;
+      } else y += 3;
+      if (pageNum) {
+        F('normal', 7);
+        doc.setTextColor(...GREY);
+        doc.text(`Page ${pageNum} of ${totalPages}`, pageW - MARGIN, pageH - OUTER - 3, { align: 'right' });
+      }
+      return y;
+    }
+
+    function sectionBar(y, label) {
+      doc.setFillColor(...NAVY);
+      doc.rect(MARGIN, y, usable, 6.5, 'F');
+      F('bold', 8.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(label, MARGIN + 2.5, y + 4.4);
+      return y + 6.5;
+    }
+
+    const fin = recalc();
+    const qtNo = $('qtNo').value.trim() || 'QT#00000';
+    const qtDate = fmtDate($('qtDate').value);
+    const prepared = $('preparedBy').value.trim();
+    const approved = $('approvedBy').value.trim();
+    const qtType = $('qtType').value;
+    const customer = $('customer').value.trim();
+    const requested = $('requestedBy').value.trim();
+    const scopeTitle = $('scopeTitle').value.trim() || 'SCOPE OF SUPPLY';
+
+    // estimate pages: content page(s) + photo page if any images
+    const withPhotos = items.some(it => it.imageDataUrl);
+    // We'll use dynamic page breaks; totalPages refined at end is hard — show progressive
+    let totalPagesEst = withPhotos ? 2 : 1;
+
+    // ---- PAGE 1 ----
+    let y = drawHeader(
+      'QUOTATION',
+      `${qtNo}  |  Date: ${qtDate}  |  Prepared: ${prepared}  |  Approved: ${approved}  |  Type: ${qtType}`,
+      1, totalPagesEst
+    );
+
+    // meta tiles
+    const colW = usable / 3;
+    const metaH = 12;
+    doc.setFillColor(...SOFT);
+    doc.roundedRect(MARGIN, y, usable, metaH, 1, 1, 'F');
+    [['CUSTOMER', customer], ['REQUESTED BY', requested], ['QUOTATION TYPE', qtType]].forEach((pair, i) => {
+      const x = MARGIN + i * colW;
+      F('normal', 6);
+      doc.setTextColor(...GREY);
+      doc.text(pair[0], x + 2.5, y + 3.5);
+      F('bold', 8.5);
+      doc.setTextColor(...DARK);
+      doc.text(String(pair[1] || '').substring(0, 28), x + 2.5, y + 8.5);
+    });
+    y += metaH + 3;
+
+    // commercial summary — equal height, dual navy bars
+    const boxH = 46;
+    const gap = 3.5;
+    const half = (usable - gap) / 2;
+    const barW = 2.4;
+    const leftX = MARGIN;
+    const rightX = MARGIN + half + gap;
+    const bottom = y + boxH;
+
+    doc.setFillColor(...SOFT);
+    doc.roundedRect(leftX, y, half, boxH, 1.6, 1.6, 'F');
+    doc.roundedRect(rightX, y, half, boxH, 1.6, 1.6, 'F');
+    doc.setFillColor(...NAVY);
+    doc.roundedRect(leftX, y, barW, boxH, 1, 1, 'F');
+    doc.rect(leftX + 1, y, barW - 1, boxH, 'F');
+    doc.roundedRect(rightX + half - barW, y, barW, boxH, 1, 1, 'F');
+    doc.rect(rightX + half - barW, y, barW - 1, boxH, 'F');
+
+    // left cost rows
+    F('bold', 8);
+    doc.setTextColor(...NAVY);
+    doc.text('QUOTATION COST SUMMARY', leftX + 6, y + 6);
+    const costRows = [
+      ['Sub Total', fin.sub, false],
+      ['Discount Allowed', fin.discount, false],
+      ['Taxable Sub Total', fin.taxable, false],
+      ['Tax Amount', fin.tax, false],
+      ['Final Amount Payable', fin.final, true]
+    ];
+    const topC = y + 12;
+    const botC = y + boxH - 6;
+    const stepC = (botC - topC) / 4;
+    costRows.forEach((r, i) => {
+      const ty = topC + i * stepC;
+      if (r[2]) {
+        doc.setFillColor(...NAVY);
+        doc.roundedRect(leftX + 4.5, ty - 2.6, half - 10, 6.4, 1, 1, 'F');
+        F('bold', 8);
+        doc.setTextColor(255, 255, 255);
+        doc.text(r[0], leftX + 6, ty + 1.5);
+        doc.text('KES  ' + money(r[1]), leftX + half - 5, ty + 1.5, { align: 'right' });
+      } else {
+        F('normal', 7.5);
+        doc.setTextColor(...DARK);
+        doc.text(r[0], leftX + 6, ty + 1.5);
+        F('bold', 7.5);
+        doc.setTextColor(...NAVY);
+        doc.text(money(r[1]), leftX + half - 5, ty + 1.5, { align: 'right' });
+      }
+    });
+
+    // right payment — right aligned, no PAYMENT DETAILS heading
+    const rxR = rightX + half - barW - 3.2;
+    const paySlots = [
+      { h: true, t: 'FOR BANK PAYMENT' },
+      { h: false, t: 'FORECOURT SUPPLIES AND WORKS LTD' },
+      { h: false, t: 'Diamond Trust Bank (DTB) | Bank Code: 063 | Branch: TRM' },
+      { h: false, t: 'Account: 0766-364-001' },
+      { h: true, t: 'FOR PAYBILL PAYMENT' },
+      { h: false, t: 'Paybill No: 516600 | A/C No. 0766364001' },
+      { h: true, t: 'FOR DIRECT MPESA DEPOSIT' },
+      { h: false, t: 'Mpesa No: 0729-002-087 | Reg Name: Elizabeth Kamando' }
+    ];
+    const topP = y + 6;
+    const botP = y + boxH - 5.5;
+    const stepP = (botP - topP) / (paySlots.length - 1);
+    paySlots.forEach((s, i) => {
+      const py = topP + i * stepP;
+      if (s.h) {
+        F('bold', 7);
+        doc.setTextColor(...NAVY);
+      } else {
+        F('normal', 6.2);
+        doc.setTextColor(...DARK);
+      }
+      // shrink if needed
+      let size = s.h ? 7 : 6.2;
+      doc.setFontSize(size);
+      const maxW = half - barW - 8;
+      while (size > 5 && doc.getTextWidth(s.t) > maxW) {
+        size -= 0.2;
+        doc.setFontSize(size);
+      }
+      doc.text(s.t, rxR, py, { align: 'right' });
+    });
+
+    y = bottom + 3.5;
+
+    // items section
+    y = sectionBar(y, '1.  ' + scopeTitle.toUpperCase());
+    y += 1.5;
+
+    const cols = [9, 30, 75, 11, 11, 22, 22]; // sum ~180
+    const headers = ['No', 'ITEM NAME', 'ITEM DESCRIPTION', 'QTY', 'UNIT', 'COST/UNIT', 'TOTAL'];
+
+    function drawItemHeader(yy) {
+      doc.setFillColor(...NAVY);
+      doc.rect(MARGIN, yy, usable, 6.5, 'F');
+      F('bold', 7);
+      doc.setTextColor(255, 255, 255);
+      let x = MARGIN;
+      headers.forEach((h, i) => {
+        doc.text(h, x + 1.2, yy + 4.4);
+        x += cols[i];
       });
+      return yy + 6.5;
+    }
+
+    y = drawItemHeader(y);
+
+    function ensureSpace(needed) {
+      if (y + needed > bottomLimit) {
+        doc.addPage();
+        totalPagesEst = Math.max(totalPagesEst, doc.internal.getNumberOfPages() + (withPhotos ? 1 : 0));
+        y = drawHeader('QUOTATION (continued)', `${qtNo}  |  ${customer}`, doc.internal.getNumberOfPages(), totalPagesEst);
+        y = drawItemHeader(y);
+      }
+    }
+
+    items.forEach((it, idx) => {
+      const nameLines = wrapText(doc, it.name || '—', 'Roboto', 7.5, cols[1] - 2.5);
+      const descLines = wrapMultiline(doc, it.description || '', 'Roboto', 6.5, cols[2] - 2.5);
+      const nLines = Math.max(nameLines.length, descLines.length, 2);
+      const rowH = Math.max(11, nLines * 3.3 + 3.5);
+
+      ensureSpace(rowH + 2);
+
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(MARGIN, y, usable, rowH, 'F');
+      }
+      doc.setDrawColor(220, 220, 230);
+      doc.setLineWidth(0.25);
+      doc.line(MARGIN, y + rowH, pageW - MARGIN, y + rowH);
+
+      let x = MARGIN;
+      F('bold', 7.5);
+      doc.setTextColor(...NAVY);
+      doc.text(String(idx + 1), x + 1.2, y + 4.5);
+      x += cols[0];
+
+      F('bold', 7.5);
+      doc.setTextColor(...DARK);
+      nameLines.forEach((ln, li) => doc.text(ln, x + 1.2, y + 4.2 + li * 3.2));
+      x += cols[1];
+
+      F('normal', 6.5);
+      descLines.forEach((ln, li) => doc.text(ln, x + 1.2, y + 4.2 + li * 3.1));
+      x += cols[2];
+
+      F('normal', 7.5);
+      doc.setTextColor(...DARK);
+      doc.text(String(it.qty || 0), x + cols[3] / 2, y + 4.5, { align: 'center' });
+      x += cols[3];
+      doc.text(String(it.unit || 'PC'), x + cols[4] / 2, y + 4.5, { align: 'center' });
+      x += cols[4];
+      doc.text(money(it.cost), x + cols[5] - 1.2, y + 4.5, { align: 'right' });
+      x += cols[5];
+      F('bold', 7.5);
+      doc.setTextColor(...NAVY);
+      doc.text(money((it.qty || 0) * (it.cost || 0)), x + cols[6] - 1.2, y + 4.5, { align: 'right' });
+
       y += rowH;
     });
+
+    // labour / travel
+    function simpleRow(label, value) {
+      ensureSpace(8);
+      y += 2;
+      y = sectionBar(y, label);
+      y += 0.8;
+      doc.setDrawColor(220, 220, 230);
+      doc.setLineWidth(0.25);
+      doc.line(MARGIN, y + 6.5, pageW - MARGIN, y + 6.5);
+      F('normal', 7.5);
+      doc.setTextColor(...DARK);
+      // label already in section; show amount line
+      // re-read: we used section for title — show amount as simple row under
+    }
+
+    // Labour block
+    ensureSpace(20);
+    y += 2.5;
+    y = sectionBar(y, '2.  LABOUR COST');
+    y += 0.8;
+    doc.setDrawColor(220, 220, 230);
+    doc.setLineWidth(0.25);
+    doc.line(MARGIN, y + 6.5, pageW - MARGIN, y + 6.5);
+    F('normal', 7.5);
+    doc.setTextColor(...DARK);
+    doc.text($('labourDesc').value || 'Installation', MARGIN + 2, y + 4.4);
+    F('bold', 7.5);
+    doc.setTextColor(...NAVY);
+    doc.text(money(fin.labour), pageW - MARGIN - 2, y + 4.4, { align: 'right' });
+    y += 6.5 + 1.5;
+
+    ensureSpace(16);
+    y = sectionBar(y, '3.  TRAVEL / DELIVERY EXPENSES REIMBURSEMENT');
+    y += 0.8;
+    doc.setDrawColor(220, 220, 230);
+    doc.setLineWidth(0.25);
+    doc.line(MARGIN, y + 6.5, pageW - MARGIN, y + 6.5);
+    F('normal', 7.5);
+    doc.setTextColor(...DARK);
+    const travelLines = wrapText(doc, $('travelDesc').value || '', 'Roboto', 7.5, usable - 40);
+    doc.text(travelLines[0] || '', MARGIN + 2, y + 4.4);
+    F('bold', 7.5);
+    doc.setTextColor(...NAVY);
+    doc.text(money(fin.travel), pageW - MARGIN - 2, y + 4.4, { align: 'right' });
+    y += 6.5 + 3;
+
+    // Important note
+    const note = $('importantNote').value || '';
+    const noteLines = wrapText(doc, note, 'Roboto', 6.5, usable - 5);
+    const noteH = Math.max(14, 8 + noteLines.length * 3);
+    ensureSpace(noteH + 4);
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(MARGIN, y, usable, noteH, 1.2, 1.2, 'F');
+    F('bold', 7);
+    doc.setTextColor(...AMBER);
+    doc.text('IMPORTANT NOTE', MARGIN + 2.5, y + 3.8);
+    F('normal', 6.5);
+    doc.setTextColor(...DARK);
+    noteLines.forEach((ln, i) => doc.text(ln, MARGIN + 2.5, y + 7.5 + i * 3));
+    y += noteH + 3;
+
+    // Terms
+    const termTexts = terms.map(t => t.text).filter(Boolean);
+    const termBlockH = 6.5 + 2 + termTexts.length * 4.2 + 8;
+    ensureSpace(termBlockH + 20);
+    y = sectionBar(y, 'TERMS & CONDITIONS');
+    y += 2;
+    const contentH = termTexts.length * 4.2 + 8;
+    doc.setFillColor(...SOFT);
+    doc.roundedRect(MARGIN, y, usable, contentH, 1.5, 1.5, 'F');
+    let ty = y + 5;
+    termTexts.forEach((t, i) => {
+      F('bold', 7);
+      doc.setTextColor(...NAVY);
+      doc.text(`${i + 1}.`, MARGIN + 3, ty);
+      F('normal', 7);
+      doc.setTextColor(...DARK);
+      const ls = wrapText(doc, t, 'Roboto', 7, usable - 12);
+      ls.forEach((ln, j) => doc.text(ln, MARGIN + 8, ty + j * 3.4));
+      ty += Math.max(4.2, ls.length * 3.4);
+    });
+    y += contentH + 4;
+
+    // Sign-off: Creator + Approver side by side, then full-width Client Acceptance box
+    const statement = `My appended signature signifies our acceptance of quotation ${qtNo} dated ${qtDate} for ${scopeTitle} at KES ${money(fin.final)}, on the terms set out in the document.`;
+    const stmtLines = wrapText(doc, statement, 'Roboto', 7.5, usable - 12);
+    const clientBlockH = 6.5 + stmtLines.length * 3.5 + 2 + 22 + 5;
+    ensureSpace(6.5 + 4 + 30 + clientBlockH + 10);
+    y = sectionBar(y, 'SIGN-OFF');
+    y += 4;
+
+    // Creator + Approver
+    const staffGap = 4;
+    const staffHalf = (usable - staffGap) / 2;
+    const staff = [
+      { key: 'sigCreator', label: 'QUOTATION CREATOR', name: $('sigCreatorName').value || 'ECK' },
+      { key: 'sigApprover', label: 'QUOTATION APPROVER', name: $('sigApproverName').value || 'B. O' }
+    ];
+    staff.forEach((s, i) => {
+      const sx = MARGIN + i * (staffHalf + staffGap);
+      F('bold', 7);
+      doc.setTextColor(...NAVY);
+      doc.text(s.label, sx + staffHalf / 2, y, { align: 'center' });
+      doc.setDrawColor(180, 190, 205);
+      doc.setLineWidth(0.35);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(sx, y + 2, staffHalf, 20, 1.2, 1.2, 'FD');
+      const data = getSigDataUrl(s.key);
+      if (data) {
+        try { doc.addImage(data, 'PNG', sx + 4, y + 3.5, staffHalf - 8, 14); } catch (_) {}
+      }
+      F('normal', 7);
+      doc.setTextColor(...DARK);
+      doc.text(s.name, sx + staffHalf / 2, y + 25, { align: 'center' });
+      F('normal', 5.5);
+      doc.setTextColor(...GREY);
+      doc.text('Signature / Name', sx + staffHalf / 2, y + 28.5, { align: 'center' });
+    });
+    y += 32;
+
+    // Client acceptance — full-width navy boundary rectangle
+    const hdrH = 6.5;
+    const stmtH = stmtLines.length * 3.5 + 2;
+    const sigBoxH = 20;
+    const rectH = hdrH + stmtH + sigBoxH + 5;
+    ensureSpace(rectH + 8);
+
+    doc.setFillColor(239, 246, 255);
+    doc.setDrawColor(...NAVY);
+    doc.setLineWidth(1.05);
+    doc.roundedRect(MARGIN, y, usable, rectH, 2, 2, 'FD');
+    doc.setFillColor(...NAVY);
+    doc.rect(MARGIN, y, 2.2, rectH, 'F');
+    doc.rect(MARGIN, y, usable, hdrH, 'F');
+    F('bold', 8);
+    doc.setTextColor(255, 255, 255);
+    doc.text('CLIENT QUOTATION ACCEPTANCE', MARGIN + 5, y + 4.5);
+
+    let sty = y + hdrH + 4.5;
+    F('normal', 7.5);
+    doc.setTextColor(...DARK);
+    stmtLines.forEach(ln => {
+      doc.text(ln, MARGIN + 5, sty);
+      sty += 3.5;
+    });
+
+    const sigTop = y + hdrH + stmtH + 1;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...NAVY);
+    doc.setLineWidth(0.55);
+    doc.roundedRect(MARGIN + 5, sigTop, usable - 10, sigBoxH, 1.5, 1.5, 'FD');
+    F('bold', 6.5);
+    doc.setTextColor(...NAVY);
+    doc.text('CLIENT SIGNATURE', MARGIN + 8, sigTop + 4.5);
+    const clientSig = getSigDataUrl('sigClient');
+    if (clientSig) {
+      try { doc.addImage(clientSig, 'PNG', MARGIN + 12, sigTop + 5.5, usable - 24, 10); } catch (_) {}
+    } else {
+      doc.setDrawColor(160, 170, 185);
+      doc.setLineWidth(0.35);
+      doc.line(MARGIN + 12, sigTop + 12, pageW - MARGIN - 12, sigTop + 12);
+    }
+    F('normal', 6.5);
+    doc.setTextColor(...DARK);
+    doc.text($('sigClientName').value || 'Name / Title / Date', pageW / 2, sigTop + 16.5, { align: 'center' });
+
+    y += rectH + 6;
+
+    F('normal', 8.5);
+    doc.setTextColor(...AMBER);
+    doc.text('Thank You For Your Business!', pageW / 2, Math.min(y + 2, bottomLimit - 2), { align: 'center' });
+
+    // ---- PHOTO PAGE ----
+    const photoItems = items.filter(it => it.imageDataUrl);
+    if (photoItems.length) {
+      doc.addPage();
+      const pnum = doc.internal.getNumberOfPages();
+      y = drawHeader(
+        'QUOTATION — PRODUCT REFERENCE',
+        `${qtNo}  |  ${customer}  |  Item Photos`,
+        pnum, pnum
+      );
+      y = sectionBar(y, 'ITEM PHOTOGRAPHS  ·  LABELLED BY NAME');
+      y += 5;
+
+      // grid 2x2 per page, spill to extra pages
+      let slot = 0;
+      const gap = 5;
+      const cellW = (usable - gap) / 2;
+
+      function nextCellOrigin() {
+        if (slot > 0 && slot % 4 === 0) {
+          doc.addPage();
+          const pn = doc.internal.getNumberOfPages();
+          y = drawHeader(
+            'QUOTATION — PRODUCT REFERENCE',
+            `${qtNo}  |  ${customer}  |  Item Photos (cont.)`,
+            pn, pn
+          );
+          y = sectionBar(y, 'ITEM PHOTOGRAPHS  ·  LABELLED BY NAME');
+          y += 5;
+          slot = 0;
+        }
+        const availH = y - (OUTER + 12);
+        // when slot 0, compute cellH from remaining
+        const cellH = (availH - gap) / 2;
+        const col = slot % 2;
+        const row = Math.floor(slot / 2) % 2;
+        const x = MARGIN + col * (cellW + gap);
+        const cy = y - (row + 1) * cellH - row * gap;
+        return { x, cy, cellW, cellH };
+      }
+
+      // recompute cellH once at start of grid
+      const availH0 = y - (OUTER + 12);
+      const cellH0 = (availH0 - gap) / 2;
+
+      photoItems.forEach((it, idx) => {
+        if (slot > 0 && slot % 4 === 0) {
+          doc.addPage();
+          const pn = doc.internal.getNumberOfPages();
+          y = drawHeader(
+            'QUOTATION — PRODUCT REFERENCE',
+            `${qtNo}  |  ${customer}  |  Item Photos (cont.)`,
+            pn, pn
+          );
+          y = sectionBar(y, 'ITEM PHOTOGRAPHS  ·  LABELLED BY NAME');
+          y += 5;
+          slot = 0;
+        }
+        const col = slot % 2;
+        const row = Math.floor(slot / 2);
+        const availH = y - (OUTER + 12);
+        const cellH = (availH - gap) / 2;
+        const x = MARGIN + col * (cellW + gap);
+        const cy = y - (row + 1) * cellH - row * gap;
+        const labelH = 9;
+
+        doc.setFillColor(...SOFT);
+        doc.roundedRect(x, cy, cellW, cellH, 2, 2, 'F');
+        doc.setFillColor(...NAVY);
+        doc.roundedRect(x, cy + cellH - labelH, cellW, labelH, 2, 2, 'F');
+        doc.rect(x, cy + cellH - labelH, cellW, 3, 'F');
+        F('bold', 8);
+        doc.setTextColor(255, 255, 255);
+        const label = `${items.indexOf(it) + 1}.  ${(it.name || 'ITEM').toUpperCase()}`;
+        doc.text(label.substring(0, 42), x + cellW / 2, cy + cellH - 3.5, { align: 'center' });
+
+        const pad = 4;
+        const areaW = cellW - 2 * pad;
+        const areaH = cellH - labelH - 2 * pad - 6;
+        try {
+          // fit image preserving aspect
+          const props = doc.getImageProperties(it.imageDataUrl);
+          const scale = Math.min(areaW / props.width, areaH / props.height);
+          const dw = props.width * scale;
+          const dh = props.height * scale;
+          const ix = x + (cellW - dw) / 2;
+          const iy = cy + 6 + (areaH - dh) / 2 + 2;
+          doc.addImage(it.imageDataUrl, 'PNG', ix, iy, dw, dh);
+        } catch (_) {}
+
+        F('normal', 6.5);
+        doc.setTextColor(...GREY);
+        const note = `${it.qty || 1} ${it.unit || 'PC'}  ·  ${money(it.cost)}`;
+        doc.text(note, x + cellW / 2, cy + 3.5, { align: 'center' });
+
+        slot++;
+      });
+
+      F('normal', 6.5);
+      doc.setTextColor(...GREY);
+      doc.text(
+        'Product images are for identification only. Actual supplied items may vary in branding while meeting the quoted specifications.',
+        pageW / 2, OUTER + 5, { align: 'center' }
+      );
+    }
+
+    // download
+    const safeCust = (customer || 'CLIENT').replace(/[^A-Z0-9]/gi, '').substring(0, 8).toUpperCase();
+    const fname = `${qtNo.replace(/[^A-Z0-9#]/gi, '')}-${safeCust}.pdf`;
+    doc.save(fname);
+    toast('PDF generated: ' + fname);
   }
 
-  function exportSingleEntryPdf() {
-    if (!detailCtx) return;
-    if (detailCtx.kind === 'sr') {
-      // simple single-entry export via register style filtered conceptually
-      toast('Single-entry PDF: use register Export for now; dedicated single layout in next iteration', 'success');
+  // ---------- persistence ----------
+  const FIELD_IDS = [
+    'qtNo', 'qtDate', 'qtType', 'customer', 'requestedBy', 'preparedBy',
+    'approvedBy', 'scopeTitle', 'labourDesc', 'labourAmt', 'travelDesc',
+    'travelAmt', 'discount', 'taxRate', 'importantNote',
+    'sigCreatorName', 'sigApproverName', 'sigClientName'
+  ];
+
+  const DEFAULT_FIELDS = {
+    qtNo: 'QT#00067',
+    qtType: 'Parts Only',
+    customer: 'PETROSOMA · SALGAA',
+    requestedBy: 'ISAAK',
+    preparedBy: 'ECK',
+    approvedBy: 'B. O',
+    scopeTitle: 'SUPPLY OF MOTOR CONTROL & PROTECTION SYSTEM',
+    labourDesc: 'Installation',
+    labourAmt: '7500',
+    travelDesc: 'Technician Travel — Nairobi to Salgaa (2 × RETURN @ 1,100.00)',
+    travelAmt: '2200',
+    discount: '0',
+    taxRate: '0',
+    importantNote: 'A formal approval of this quotation is required before we can raise a work order or sales order and commence work. Please append your signature on the client quotation acceptance section and return the signed copy to us via email sales@forecourtworks.co.ke',
+    sigCreatorName: 'ECK',
+    sigApproverName: 'B. O',
+    sigClientName: ''
+  };
+
+  // Embedded transparent signature PNGs (no network/file fetch required)
+  const DEFAULT_SIG_DATA = {
+    sigCreator: 'data:image/png;base64,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',
+    sigApprover: 'data:image/png;base64,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'
+  };
+
+  function showSigPreview(id, dataUrl) {
+    const img = $('preview-' + id);
+    const wrap = $('wrap-' + id);
+    if (!img || !wrap) return;
+    if (dataUrl) {
+      img.src = dataUrl;
+      img.classList.add('show');
+      wrap.classList.add('has-file');
     } else {
-      exportSingleWoPdf(detailCtx.id);
+      img.removeAttribute('src');
+      img.classList.remove('show');
+      wrap.classList.remove('has-file');
     }
   }
-  function exportSingleWoPdf(woNo) {
-    const rec = woRecords.find(r => r.wo === woNo);
-    if (!rec) return;
-    if (!rec.aiDone) {
-      toast('Create WO with AI first, then Convert to PDF', 'error');
+
+  function clearSignature(id) {
+    if (pads[id]) pads[id].clear();
+    sigFiles[id] = null;
+    showSigPreview(id, null);
+    scheduleSave();
+  }
+
+  function setAttachedSignature(id, dataUrl) {
+    sigFiles[id] = dataUrl || null;
+    if (pads[id]) pads[id].clear();
+    showSigPreview(id, dataUrl);
+    scheduleSave();
+  }
+
+  function collectState() {
+    const fields = {};
+    FIELD_IDS.forEach(id => {
+      const el = $(id);
+      if (el) fields[id] = el.value;
+    });
+    const signatures = {};
+    ['sigCreator', 'sigApprover', 'sigClient'].forEach(id => {
+      if (sigFiles[id]) {
+        signatures[id] = { type: 'file', data: sigFiles[id] };
+      } else if (pads[id] && !pads[id].isEmpty()) {
+        signatures[id] = { type: 'pad', data: pads[id].toDataURL('image/png') };
+      } else {
+        signatures[id] = null;
+      }
+    });
+    return {
+      version: 1,
+      fields,
+      items: items.map(it => ({
+        id: it.id,
+        name: it.name,
+        description: it.description,
+        qty: it.qty,
+        unit: it.unit,
+        cost: it.cost,
+        imageDataUrl: it.imageDataUrl
+      })),
+      terms: terms.map(t => ({ id: t.id, text: t.text })),
+      itemIdSeq,
+      termIdSeq,
+      signatures,
+      link: { srNo: link.srNo || '', woNo: link.woNo || '' }
+    };
+  }
+
+  function scheduleSave() {
+    if (suppressSave) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveState, 250);
+  }
+
+  function saveState() {
+    if (suppressSave) return;
+    let state = null;
+    try {
+      state = collectState();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      console.warn('Could not save quotation state', err);
+    }
+    if (state) { storeQuotation(state); notifyParent('fsw-quote-updated'); }
+  }
+
+  // ---------- quotation numbering, store and register ----------
+  function pad5(n) { return String(n).padStart(5, '0'); }
+  function qtNumber(str) {
+    const m = /QT#?\s*0*(\d+)/i.exec(String(str || ''));
+    return m ? parseInt(m[1], 10) : null;
+  }
+  function readJson(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch (_) { return fallback; }
+  }
+  function nextQtNo() {
+    let max = QT_LAST_ISSUED;
+    const reg = readJson(REGISTER_KEY, []);
+    if (Array.isArray(reg)) reg.forEach(r => { if (r && r.n > max) max = r.n; });
+    const cur = qtNumber($('qtNo') && $('qtNo').value);
+    if (cur && cur > max) max = cur;
+    return 'QT#' + pad5(max + 1);
+  }
+  function storeQuotation(state) {
+    const qt = state.fields && state.fields.qtNo;
+    const n = qtNumber(qt);
+    if (!n) return;
+    const key = 'QT#' + pad5(n);
+    let total = 0;
+    try { total = recalc().final; } catch (_) {}
+    // register (numbering + SR/WO link)
+    const reg = readJson(REGISTER_KEY, []);
+    const entry = {
+      qt: key, n, srNo: link.srNo || '', woNo: link.woNo || '',
+      client: state.fields.customer || '', scope: state.fields.scopeTitle || '',
+      total, date: state.fields.qtDate || '', at: new Date().toISOString()
+    };
+    const i = reg.findIndex(r => r.n === n);
+    if (i >= 0) reg[i] = entry; else reg.push(entry);
+    try { localStorage.setItem(REGISTER_KEY, JSON.stringify(reg)); } catch (_) {}
+    // full state per number (default signatures are re-applied on load, so skip them)
+    const slim = JSON.parse(JSON.stringify(state));
+    ['sigCreator', 'sigApprover'].forEach(id => {
+      const sg = slim.signatures && slim.signatures[id];
+      if (sg && sg.data === DEFAULT_SIG_DATA[id]) slim.signatures[id] = null;
+    });
+    const store = readJson(STORE_KEY, {});
+    store[key] = slim;
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(store));
+    } catch (_) {
+      // storage full: drop photos from the other saved quotations and retry once
+      Object.keys(store).forEach(k => {
+        if (k !== key && store[k] && store[k].items) store[k].items.forEach(it => { it.imageDataUrl = null; });
+      });
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { console.warn('Quotation store full', e); }
+    }
+  }
+  function currentQtNo() { return ($('qtNo') && $('qtNo').value.trim()) || ''; }
+  function notifyParent(type) {
+    if (window.parent === window) return;
+    const entry = (readJson(REGISTER_KEY, []).find(r => r.n === qtNumber(currentQtNo())) || {});
+    try {
+      window.parent.postMessage({
+        type, qt: currentQtNo(), srNo: link.srNo || '', woNo: link.woNo || '',
+        client: entry.client || '', total: entry.total || 0
+      }, '*');
+    } catch (_) {}
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function applyFields(fields) {
+    if (!fields) return;
+    FIELD_IDS.forEach(id => {
+      const el = $(id);
+      if (el && fields[id] !== undefined && fields[id] !== null) {
+        el.value = fields[id];
+      }
+    });
+  }
+
+  function applySignatures(signatures) {
+    if (!signatures) return;
+    ['sigCreator', 'sigApprover', 'sigClient'].forEach(id => {
+      const s = signatures[id];
+      if (!s || !s.data) {
+        sigFiles[id] = null;
+        showSigPreview(id, null);
+        if (pads[id]) pads[id].clear();
+        return;
+      }
+      if (s.type === 'file') {
+        setAttachedSignature(id, s.data);
+      } else {
+        // drawn pad — restore onto canvas
+        sigFiles[id] = null;
+        showSigPreview(id, null);
+        if (pads[id]) {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = $(id);
+            const ctx = canvas.getContext('2d');
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.scale(ratio, ratio);
+            ctx.drawImage(img, 0, 0, canvas.width / ratio, canvas.height / ratio);
+            // Keep as file-equivalent so getSigDataUrl works after restore
+            sigFiles[id] = s.data;
+            showSigPreview(id, s.data);
+          };
+          img.src = s.data;
+        } else {
+          sigFiles[id] = s.data;
+          showSigPreview(id, s.data);
+        }
+      }
+    });
+  }
+
+  function seedSample() {
+    itemIdSeq = 1;
+    termIdSeq = 1;
+    items = [
+      {
+        id: itemIdSeq++,
+        name: 'DOL Starter',
+        description: 'Three Phase Direct On Line Electric Motor Starter. Suitable for 7.5HP / 5.5kW 3Ph motor. Pre-wired with Contactor 18-25A, Overload Relay 9-13A.',
+        qty: 1, unit: 'PC', cost: 7500, imageDataUrl: null
+      }
+    ];
+    terms = [defaultTerm()];
+    terms.push({
+      id: termIdSeq++,
+      text: 'Prices are quoted in Kenya Shillings (KES) and are exclusive of any applicable taxes unless shown above.'
+    });
+    terms.push({
+      id: termIdSeq++,
+      text: 'Delivery / installation lead time will be confirmed upon receipt of formal purchase order / written approval.'
+    });
+    terms.push({
+      id: termIdSeq++,
+      text: 'Ownership of goods remains with Forecourt Works Limited until full payment is received.'
+    });
+  }
+
+  async function fetchAsDataUrl(path) {
+    try {
+      const res = await fetch(path);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function loadDefaultSignatures(forceAll) {
+    // Elizabeth → Creator (ECK); Oguta → Approver (B. O). Embedded transparent PNGs.
+    ['sigCreator', 'sigApprover'].forEach(id => {
+      if (!forceAll && sigFiles[id]) return; // keep user-attached / restored
+      const url = DEFAULT_SIG_DATA[id];
+      if (!url) return;
+      if (pads[id]) pads[id].clear();
+      sigFiles[id] = url;
+      showSigPreview(id, url);
+    });
+    if (forceAll) {
+      if (pads.sigClient) pads.sigClient.clear();
+      sigFiles.sigClient = null;
+      showSigPreview('sigClient', null);
+    }
+  }
+
+  function applyDefaultsToForm() {
+    suppressSave = true;
+    Object.keys(DEFAULT_FIELDS).forEach(id => {
+      const el = $(id);
+      if (el) el.value = DEFAULT_FIELDS[id];
+    });
+    const dateEl = $('qtDate');
+    if (dateEl) dateEl.value = todayISO();
+    ['sigCreator', 'sigApprover', 'sigClient'].forEach(id => {
+      if (pads[id]) pads[id].clear();
+      sigFiles[id] = null;
+      showSigPreview(id, null);
+    });
+    suppressSave = false;
+  }
+
+  async function hardReset() {
+    const keepNo = currentQtNo() || nextQtNo();
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    suppressSave = true;
+    seedSample();
+    applyDefaultsToForm();
+    $('qtNo').value = keepNo;
+    renderItems();
+    renderTerms();
+    recalc();
+    suppressSave = false;
+    loadDefaultSignatures(true);
+    saveState();
+  }
+
+  function restoreOrSeed(given) {
+    const state = given || loadState();
+    suppressSave = true;
+    if (state && state.version === 1) {
+      itemIdSeq = state.itemIdSeq || 1;
+      termIdSeq = state.termIdSeq || 1;
+      items = Array.isArray(state.items) && state.items.length
+        ? state.items.map(it => ({
+            id: it.id,
+            name: it.name || '',
+            description: it.description || '',
+            qty: Number(it.qty) || 1,
+            unit: it.unit || 'PC',
+            cost: Number(it.cost) || 0,
+            imageDataUrl: it.imageDataUrl || null
+          }))
+        : null;
+      if (!items) seedSample();
+      terms = Array.isArray(state.terms) && state.terms.length
+        ? state.terms.map(t => ({ id: t.id, text: t.text || '' }))
+        : null;
+      if (!terms) {
+        terms = [defaultTerm()];
+        terms.push({
+          id: termIdSeq++,
+          text: 'Prices are quoted in Kenya Shillings (KES) and are exclusive of any applicable taxes unless shown above.'
+        });
+        terms.push({
+          id: termIdSeq++,
+          text: 'Delivery / installation lead time will be confirmed upon receipt of formal purchase order / written approval.'
+        });
+        terms.push({
+          id: termIdSeq++,
+          text: 'Ownership of goods remains with Forecourt Works Limited until full payment is received.'
+        });
+      }
+      link = { srNo: (state.link && state.link.srNo) || '', woNo: (state.link && state.link.woNo) || '' };
+      applyFields(state.fields || {});
+      if (!$('qtDate').value) $('qtDate').value = todayISO();
+      renderItems();
+      renderTerms();
+      recalc();
+      suppressSave = false;
+      // signatures after pads exist
+      return state.signatures || null;
+    }
+    seedSample();
+    applyDefaultsToForm();
+    renderItems();
+    renderTerms();
+    recalc();
+    suppressSave = false;
+    return null;
+  }
+
+  function bind() {
+    $('btnAddItem').addEventListener('click', () => {
+      items.push(defaultItem());
+      renderItems();
+      recalc();
+      scheduleSave();
+    });
+    $('btnAddTerm').addEventListener('click', () => {
+      terms.push({ id: termIdSeq++, text: '' });
+      renderTerms();
+      scheduleSave();
+    });
+    ['labourAmt', 'travelAmt', 'discount', 'taxRate'].forEach(id => {
+      $(id).addEventListener('input', () => { recalc(); scheduleSave(); });
+    });
+    FIELD_IDS.forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener('input', scheduleSave);
+      el.addEventListener('change', scheduleSave);
+    });
+    $('btnPdf').addEventListener('click', () => {
+      saveState();
+      generatePdf().catch(err => {
+        console.error(err);
+        toast('PDF error: ' + (err.message || err));
+      });
+    });
+    const btnNew = $('btnNew');
+    if (btnNew) btnNew.addEventListener('click', () => {
+      saveState();
+      newQuotation({}, {});
+      toast('New quotation ' + currentQtNo());
+    });
+    $('btnReset').addEventListener('click', async () => {
+      if (!confirm('Reset form to defaults? All entered data will be cleared.')) return;
+      await hardReset();
+      toast('Form reset to defaults');
+    });
+
+    document.querySelectorAll('[data-clear]').forEach(b => {
+      b.addEventListener('click', () => clearSignature(b.dataset.clear));
+    });
+    document.querySelectorAll('[data-sigfile]').forEach(inp => {
+      inp.addEventListener('change', async (e) => {
+        const id = inp.dataset.sigfile;
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          let url = await fileToDataUrl(file);
+          // Strip solid black/near-black backgrounds from signature PNGs
+          url = await removeBackground(url);
+          setAttachedSignature(id, url);
+          toast('Signature image attached');
+        } catch (_) {
+          toast('Could not attach signature');
+        }
+        inp.value = '';
+      });
+    });
+
+    // persist pad strokes shortly after drawing stops
+    ['sigCreator', 'sigApprover', 'sigClient'].forEach(id => {
+      const canvas = $(id);
+      if (!canvas) return;
+      ['mouseup', 'touchend', 'pointerup'].forEach(ev => {
+        canvas.addEventListener(ev, () => scheduleSave());
+      });
+    });
+  }
+
+  // Hook item/term edits to save
+  const _renderItems = renderItems;
+  // patch save into existing item field handler via scheduleSave calls below
+
+  // ---------- new / open quotation (used by SR and WO tabs, and standalone links) ----------
+  function resetSignaturesAndRedraw(pending) {
+    if (pending) applySignatures(pending); else applySignatures({});
+    loadDefaultSignatures(false);
+  }
+  function newQuotation(prefill, lnk) {
+    prefill = prefill || {};
+    suppressSave = true;
+    link = { srNo: (lnk && lnk.srNo) || '', woNo: (lnk && lnk.woNo) || '' };
+    const no = nextQtNo();
+    seedSample();
+    items = [defaultItem()];
+    applyDefaultsToForm();
+    const f = {
+      qtNo: no,
+      qtType: prefill.qtType || 'Labour & Parts',
+      customer: prefill.client || '',
+      requestedBy: prefill.contact || '',
+      scopeTitle: (prefill.scope || '').toUpperCase().slice(0, 90),
+      labourDesc: '', labourAmt: '0', travelDesc: '', travelAmt: '0', discount: '0', taxRate: '0',
+      sigClientName: ''
+    };
+    Object.keys(f).forEach(id => { if ($(id)) $(id).value = f[id]; });
+    renderItems(); renderTerms(); recalc();
+    suppressSave = false;
+    resetSignaturesAndRedraw(null);
+    saveState();
+    notifyParent('fsw-quote-created');
+  }
+  function openQuotation(qt) {
+    const n = qtNumber(qt);
+    const store = readJson(STORE_KEY, {});
+    const state = n && store['QT#' + pad5(n)];
+    if (!state) return false;
+    const pending = restoreOrSeed(state);
+    resetSignaturesAndRedraw(pending);
+    saveState();
+    return true;
+  }
+  function handleCommand(cmd) {
+    if (!cmd || !cmd.type) return;
+    if (cmd.type === 'fsw-quote-visible') {
+      window.dispatchEvent(new Event('resize')); // re-measure signature pads after the tab is shown
       return;
     }
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageW = doc.internal.pageSize.getWidth();
-    const M = 14;
-    const navy = [13, 71, 140];
-    doc.setDrawColor(...navy);
-    doc.setLineWidth(0.6);
-    doc.rect(8, 8, pageW - 16, doc.internal.pageSize.getHeight() - 16);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(...navy);
-    doc.text('FORECOURT WORKS LIMITED', M, 20);
-    doc.setFontSize(11);
-    doc.text('WORK ORDER  WO#' + rec.wo, M, 28);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(40);
-    let y = 38;
-    const lines = [
-      ['Client', rec.client],
-      ['Location', rec.location],
-      ['Status', rec.status],
-      ['Type', rec.type],
-      ['Work Type', rec.workType],
-      ['Job Details', rec.details],
-      ['Equipment ID', rec.equipId],
-      ['Equipment Category', rec.equipCat],
-      ['Equipment Description', rec.equipDesc],
-      ['From SR', rec.sr ? 'SR#' + rec.sr : '—'],
-      ['Entry', rec.entry],
-      ['Start', rec.start],
-      ['End', rec.end]
-    ];
-    lines.forEach(([lab, val]) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(...navy);
-      doc.text(lab.toUpperCase(), M, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(30);
-      doc.setFontSize(9);
-      const split = doc.splitTextToSize(String(val || '—'), pageW - 2 * M);
-      doc.text(split, M, y + 4);
-      y += 4 + split.length * 4.5 + 3;
-    });
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    doc.text('AI-assisted draft · Review before issue · CONTROLLED DOCUMENT', M, y + 6);
-    doc.save('WO#' + rec.wo + '-document.pdf');
-    toast('WO document PDF saved', 'success');
+    if (cmd.type !== 'fsw-quote-open') return;
+    if (cmd.mode === 'open' && cmd.qt && openQuotation(cmd.qt)) {
+      // an SR quotation opened from its WO (or vice versa) gains the extra link
+      if (cmd.link) {
+        if (cmd.link.woNo) link.woNo = cmd.link.woNo;
+        if (cmd.link.srNo && !link.srNo) link.srNo = cmd.link.srNo;
+        saveState();
+      }
+      notifyParent('fsw-quote-opened');
+      return;
+    }
+    if (cmd.mode === 'show') return;                   // just reveal the current draft
+    newQuotation(cmd.prefill, cmd.link);
+  }
+  function readHashCommand() {
+    // standalone deep link:  quotes/index.html#new&sr=00071&client=ACME   |   #open&qt=00068
+    const h = (location.hash || '').replace(/^#/, '');
+    if (!h) return null;
+    const parts = h.split('&');
+    const mode = parts.shift();
+    if (mode !== 'new' && mode !== 'open') return null;
+    const q = {};
+    parts.forEach(kv => { const i = kv.indexOf('='); if (i > 0) q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
+    return {
+      type: 'fsw-quote-open', mode, qt: q.qt ? 'QT#' + q.qt : '',
+      prefill: { client: q.client, contact: q.contact, scope: q.scope, qtType: q.qtType },
+      link: { srNo: q.sr || '', woNo: q.wo || '' }
+    };
   }
 
-  // ---------- events ----------
   function init() {
-    loadAll();
-    // tabs
-    document.querySelectorAll('.section-tab').forEach(t => {
-      t.addEventListener('click', () => showSection(t.dataset.section));
-    });
-    // SR toolbar
-    ['sr-q-client', 'sr-q-no', 'sr-q-status', 'sr-q-converted'].forEach(id => {
-      document.getElementById(id).addEventListener('input', renderSrTable);
-      document.getElementById(id).addEventListener('change', renderSrTable);
-    });
-    document.getElementById('sr-btn-reset').onclick = () => {
-      ['sr-q-client', 'sr-q-no'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('sr-q-status').value = '';
-      document.getElementById('sr-q-converted').value = '';
-      renderSrTable();
-    };
-    document.getElementById('sr-btn-add').onclick = addSr;
-    document.getElementById('sr-btn-export').onclick = () => exportRegisterPdf('sr');
-    // WO toolbar
-    ['wo-q-client', 'wo-q-no', 'wo-q-status', 'wo-q-from', 'wo-q-to'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.addEventListener('input', renderWoTable);
-        el.addEventListener('change', renderWoTable);
+    if (window.parent !== window) document.documentElement.classList.add('embedded');
+    const pendingSigs = restoreOrSeed();
+    bind();
+    ['sigCreator', 'sigApprover', 'sigClient'].forEach(initPad);
+    setTimeout(() => {
+      if (pendingSigs) {
+        applySignatures(pendingSigs);
       }
-    });
-    document.getElementById('wo-btn-reset').onclick = () => {
-      ['wo-q-client', 'wo-q-no', 'wo-q-from', 'wo-q-to'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('wo-q-status').value = '';
-      renderWoTable();
-    };
-    document.getElementById('wo-btn-add').onclick = addWo;
-    document.getElementById('wo-btn-export').onclick = () => exportRegisterPdf('wo');
-
-    // delegated row actions
-    document.body.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-action]');
-      if (!btn) return;
-      const action = btn.dataset.action;
-      if (action === 'expand-sr') openSrDetail(btn.dataset.sr);
-      if (action === 'expand-wo') openWoDetail(btn.dataset.wo);
-      if (action === 'convert-sr') convertSr(btn.dataset.sr);
-      if (action === 'delete-sr') askDelete('sr', btn.dataset.sr);
-      if (action === 'delete-wo') askDelete('wo', btn.dataset.wo);
-    });
-
-    document.getElementById('detail-btn-home').onclick = closeDetail;
-    document.getElementById('detail-btn-pdf').onclick = exportSingleEntryPdf;
-    document.getElementById('auth-confirm').onclick = onAuthConfirm;
-    document.getElementById('auth-cancel').onclick = onAuthCancel;
-    document.getElementById('auth-pass').addEventListener('keydown', e => {
-      if (e.key === 'Enter') onAuthConfirm();
-    });
-    document.getElementById('delete-cancel').onclick = () => {
-      document.getElementById('delete-modal').classList.remove('open');
-      deleteTarget = null;
-    };
-    document.getElementById('delete-confirm').onclick = confirmDelete;
-    document.getElementById('btn-audit').onclick = () => {
-      const c = document.getElementById('audit-content');
-      if (!auditLog.length) c.innerHTML = '<p style="color:#6b7280">No audit entries yet.</p>';
-      else {
-        c.innerHTML = '<table style="width:100%;font-size:0.75rem;border-collapse:collapse"><thead><tr>' +
-          '<th style="text-align:left;padding:4px">When</th><th style="text-align:left;padding:4px">Action</th>' +
-          '<th style="text-align:left;padding:4px">Ref</th><th style="text-align:left;padding:4px">Admin</th></tr></thead><tbody>' +
-          auditLog.slice(0, 80).map(a => `<tr>
-            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(new Date(a.at).toLocaleString('en-GB'))}</td>
-            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.action)}</td>
-            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.ref)}</td>
-            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.admin)}</td>
-          </tr>`).join('') + '</tbody></table>';
+      // Always ensure creator/approver defaults if still empty (covers old localStorage)
+      loadDefaultSignatures(false);
+      saveState();
+      const hashCmd = readHashCommand();
+      if (hashCmd) {
+        handleCommand(hashCmd);
+        try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
       }
-      document.getElementById('audit-modal').classList.add('open');
-    };
-    document.getElementById('audit-close').onclick = () =>
-      document.getElementById('audit-modal').classList.remove('open');
-
-    // Restore last active section so switching device apps/tabs does not reset view
-    let savedSec = 'sr';
-    try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {}
-    try { returnSection = localStorage.getItem('fsw_register_return') || 'sr'; } catch (_) {}
-    if (savedSec !== 'sr' && savedSec !== 'wo' && savedSec !== 'qt') savedSec = 'sr';
-    showSection(savedSec);
-
-    const retBtn = document.getElementById('qt-btn-return');
-    if (retBtn) retBtn.onclick = () => {
-      let back = returnSection || 'sr';
-      try { back = localStorage.getItem('fsw_register_return') || back; } catch (_) {}
-      showSection(back === 'wo' ? 'wo' : 'sr');
-    };
-    const refBtn = document.getElementById('qt-btn-refresh');
-    if (refBtn) refBtn.onclick = () => {
-      const frame = document.getElementById('quote-frame');
-      if (frame) frame.src = 'quotes/index.html';
-      toast('Quotation form refreshed', 'success');
-    };
+      if (window.parent !== window) window.parent.postMessage({ type: 'fsw-quote-ready', qt: currentQtNo() }, '*');
+    }, 80);
+    window.addEventListener('message', (e) => {
+      if (e.source !== window.parent) return;   // accept commands only from the hosting shell
+      handleCommand(e.data);
+    });
+    loadLogo();
+    window.addEventListener('beforeunload', saveState);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -316,6 +316,9 @@
     .toast.show { display: block; animation: fade 0.3s; }
     @keyframes fade { from { opacity: 0; transform: translateY(-8px); } }
     .hidden { display: none !important; }
+    /* embedded inside the SR / WO / Quotation shell: shell supplies the header */
+    html.embedded .app-header { display: none; }
+    html.embedded body { padding-bottom: 90px; }
   </style>
 </head>
 <body>
@@ -504,12 +507,13 @@
   </div>
 
   <div class="app-footer">
+    <button type="button" class="btn btn-ghost" id="btnNew">New quotation</button>
     <button type="button" class="btn btn-ghost" id="btnReset">Reset</button>
     <button type="button" class="btn btn-primary" id="btnPdf">Generate PDF</button>
   </div>
   <div class="toast" id="toast"></div>
 
   <script src="fsw-pdf-theme.js"></script>
-  <script src="quotation-app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
