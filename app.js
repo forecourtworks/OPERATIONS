@@ -154,7 +154,15 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
   }
 
   // ---------- section switch ----------
-  function showSection(sec) {
+  let returnSection = 'sr'; // tab to return to from Quotation
+
+  function showSection(sec, opts) {
+    opts = opts || {};
+    if (sec === 'qt') {
+      // remember where we came from unless already on quote
+      if (currentSection && currentSection !== 'qt') returnSection = currentSection;
+      try { localStorage.setItem('fsw_register_return', returnSection); } catch (_) {}
+    }
     currentSection = sec;
     try { localStorage.setItem('fsw_register_section', sec); } catch (_) {}
     document.querySelectorAll('.section-tab').forEach(t => {
@@ -162,8 +170,39 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     });
     document.getElementById('section-sr').classList.toggle('active', sec === 'sr');
     document.getElementById('section-wo').classList.toggle('active', sec === 'wo');
+    const qtPanel = document.getElementById('section-qt');
+    if (qtPanel) qtPanel.classList.toggle('active', sec === 'qt');
     if (sec === 'sr') renderSrTable();
-    else renderWoTable();
+    else if (sec === 'wo') renderWoTable();
+    else if (sec === 'qt') {
+      const hint = document.getElementById('qt-nav-hint');
+      if (hint) {
+        const from = returnSection === 'wo' ? 'Work Order Register' : 'Service Request Register';
+        hint.textContent = opts.fromSr
+          ? 'Opened from Service Request — complete the quotation, then Return.'
+          : 'Standalone quotation workspace. Return goes back to ' + from + '.';
+      }
+      if (opts.prefill) prefillQuoteFrame(opts.prefill);
+    }
+  }
+
+  function prefillQuoteFrame(data) {
+    const frame = document.getElementById('quote-frame');
+    if (!frame) return;
+    // Pass context via query string + postMessage after load
+    const q = new URLSearchParams();
+    if (data.customer) q.set('customer', data.customer);
+    if (data.requestedBy) q.set('requestedBy', data.requestedBy);
+    if (data.scopeTitle) q.set('scopeTitle', data.scopeTitle);
+    if (data.sr) q.set('sr', data.sr);
+    const base = 'quotes/index.html';
+    const src = q.toString() ? base + '?' + q.toString() : base;
+    frame.onload = function () {
+      try {
+        frame.contentWindow.postMessage({ type: 'fsw-prefill-quote', data: data }, '*');
+      } catch (e) {}
+    };
+    frame.src = src;
   }
 
   // ---------- SR filters & render ----------
@@ -311,9 +350,13 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
         </div>
         <div class="detail-field"><label>Quotation Required?</label>
           <select id="d-quoteReq">
-            <option value="No" ${rec.quoteReq === 'No' ? 'selected' : ''}>No</option>
-            <option value="Yes" ${rec.quoteReq === 'Yes' ? 'selected' : ''}>Yes</option>
+            <option value="No" ${rec.quoteReq === 'No' ? 'selected' : ''}>NO</option>
+            <option value="Later" ${rec.quoteReq === 'Later' || rec.quoteReq === 'Yes' ? 'selected' : ''}>YES (Create Quote Later)</option>
+            <option value="Now" ${rec.quoteReq === 'Now' ? 'selected' : ''}>YES (Create Quote Now)</option>
           </select>
+        </div>
+        <div class="detail-field full" id="d-quote-now-wrap" style="display:none;">
+          <button type="button" class="btn btn-success" id="detail-btn-goto-quote">Open Quotation Builder →</button>
         </div>
         <div class="detail-field"><label>Quotation Accepted?</label>
           <select id="d-quoteAcc">
@@ -342,6 +385,42 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     if (saveBtn) saveBtn.onclick = () => saveSrDetail(srNo);
     const convBtn = document.getElementById('detail-btn-convert');
     if (convBtn) convBtn.onclick = () => convertSr(srNo);
+    const qSel = document.getElementById('d-quoteReq');
+    const qWrap = document.getElementById('d-quote-now-wrap');
+    function syncQuoteNowUi() {
+      if (qWrap) qWrap.style.display = (qSel && qSel.value === 'Now') ? '' : 'none';
+    }
+    if (qSel) {
+      qSel.addEventListener('change', () => {
+        syncQuoteNowUi();
+        if (qSel.value === 'Now') {
+          // Auto-redirect to Quotation tab with SR context
+          goToQuoteFromSr(srNo);
+        }
+      });
+      syncQuoteNowUi();
+    }
+    const gotoQ = document.getElementById('detail-btn-goto-quote');
+    if (gotoQ) gotoQ.onclick = () => goToQuoteFromSr(srNo);
+  }
+
+  function goToQuoteFromSr(srNo) {
+    const rec = srRecords.find(r => r.sr === srNo);
+    if (!rec) return;
+    // Persist quote choice
+    rec.quoteReq = 'Now';
+    saveSr();
+    closeDetail();
+    showSection('qt', {
+      fromSr: true,
+      prefill: {
+        sr: rec.sr,
+        customer: [rec.client, rec.site].filter(Boolean).join(' · '),
+        requestedBy: rec.contact || '',
+        scopeTitle: rec.details || rec.workType || ''
+      }
+    });
+    toast('Opening Quotation for SR#' + srNo, 'success');
   }
 
   function saveSrDetail(srNo) {
@@ -871,7 +950,22 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
     // Restore last active section so switching device apps/tabs does not reset view
     let savedSec = 'sr';
     try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {}
-    showSection(savedSec === 'wo' ? 'wo' : 'sr');
+    try { returnSection = localStorage.getItem('fsw_register_return') || 'sr'; } catch (_) {}
+    if (savedSec !== 'sr' && savedSec !== 'wo' && savedSec !== 'qt') savedSec = 'sr';
+    showSection(savedSec);
+
+    const retBtn = document.getElementById('qt-btn-return');
+    if (retBtn) retBtn.onclick = () => {
+      let back = returnSection || 'sr';
+      try { back = localStorage.getItem('fsw_register_return') || back; } catch (_) {}
+      showSection(back === 'wo' ? 'wo' : 'sr');
+    };
+    const refBtn = document.getElementById('qt-btn-refresh');
+    if (refBtn) refBtn.onclick = () => {
+      const frame = document.getElementById('quote-frame');
+      if (frame) frame.src = 'quotes/index.html';
+      toast('Quotation form refreshed', 'success');
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
