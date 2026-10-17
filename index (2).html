@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d264d" />
+  <title>Forecourt Works Ltd | Service Request & Work Order Registers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    :root {
+      --navy: #0d264d;
+      --navy-light: #1a3a6b;
+      --accent: #d9730d;
+      --success: #1a7346;
+      --danger: #b91c1c;
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --border: #d1d5db;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --radius: 10px;
+      --shadow: 0 4px 14px rgba(13, 38, 77, 0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      min-height: 100vh;
+    }
+    /* Header */
+    .app-header {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+      color: white;
+      padding: 12px 18px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    }
+    .header-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .header-top img {
+      width: 110px;
+      height: auto;
+      max-height: 40px;
+      background: transparent;
+      border-radius: 0;
+      padding: 0;
+      object-fit: contain;
+    }
+    .header-top h1 { font-size: 1.1rem; font-weight: 700; }
+    .header-top .tag { font-size: 0.68rem; opacity: 0.85; }
+    .header-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    /* Section tabs — distinct colour blocks with clear separation */
+    .section-tabs {
+      display: flex;
+      gap: 14px;
+      padding: 0 0 12px;
+      border-bottom: none;
+    }
+    .section-tab {
+      flex: 1;
+      max-width: 420px;
+      padding: 12px 18px 14px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+      color: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.18);
+      border-radius: 10px 10px 0 0;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      line-height: 1.25;
+      transition: all 0.15s;
+    }
+    .section-tab .tab-sub {
+      display: block;
+      font-weight: 500;
+      font-size: 0.68rem;
+      opacity: 0.8;
+      margin-top: 3px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .section-tab:hover {
+      background: rgba(255,255,255,0.14);
+      color: white;
+    }
+    .section-tab[data-section="sr"].active {
+      background: #0e7490;
+      border-color: #22d3ee;
+      color: white;
+      box-shadow: 0 4px 12px rgba(14,116,144,0.35);
+    }
+    .section-tab[data-section="wo"].active {
+      background: var(--accent);
+      border-color: #fdba74;
+      color: white;
+      box-shadow: 0 4px 12px rgba(217,115,13,0.35);
+    }
+    .section-tab[data-section="qt"].active {
+      background: #166534;
+      border-color: #86efac;
+      color: white;
+      box-shadow: 0 4px 12px rgba(22,101,52,0.35);
+    }
+    .section-tab.active .tab-sub { opacity: 0.95; }
+    /* Quotation panel */
+    .quote-shell { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 560px; }
+    .quote-nav {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 10px 16px; background: #ecfdf5; border-bottom: 1px solid #86efac;
+    }
+    .quote-nav .hint { font-size: 0.8rem; color: #166534; flex: 1; }
+    .quote-frame {
+      flex: 1; width: 100%; border: none; background: #fff;
+      min-height: calc(100vh - 200px);
+      height: 100%;
+    }
+    /* When panels hidden, keep them out of layout but allow WO pre-render */
+    #section-wo:not(.active) { display: none; }
+    #section-qt:not(.active) { display: none; }
+    #section-sr:not(.active) { display: none; }
+    /* Toolbar */
+    .toolbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+      position: sticky;
+      top: 118px;
+      z-index: 90;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .toolbar .field { display: flex; flex-direction: column; gap: 3px; }
+    .toolbar label {
+      font-size: 0.62rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .toolbar input, .toolbar select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      min-width: 110px;
+      background: white;
+    }
+    .toolbar input:focus, .toolbar select:focus {
+      outline: none;
+      border-color: var(--navy);
+      box-shadow: 0 0 0 2px rgba(13,38,77,0.12);
+    }
+    .toolbar .spacer { flex: 1; }
+    .view-info { font-size: 0.75rem; color: var(--muted); align-self: center; }
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .btn-navy { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.25); }
+    .btn-navy:hover { background: rgba(255,255,255,0.25); }
+    .btn-primary { background: var(--navy); color: white; }
+    .btn-primary:hover { background: var(--navy-light); }
+    .btn-accent { background: var(--accent); color: white; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-outline { background: white; color: var(--navy); border: 1px solid var(--border); }
+    .btn-outline:hover { border-color: var(--navy); background: #f8fafc; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-sm { padding: 4px 10px; font-size: 0.72rem; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* Table */
+    .container { padding: 12px 12px 40px; overflow-x: auto; }
+    .table-wrap {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      min-width: 980px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    thead {
+      background: var(--navy);
+      color: white;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    th {
+      padding: 9px 8px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      border-right: 1px solid rgba(255,255,255,0.12);
+    }
+    th:last-child { border-right: none; }
+    td {
+      padding: 6px 6px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: #f8fafc; }
+    tbody tr.converted-row { background: #f0fdf4; }
+    .cell-input, .cell-select {
+      width: 100%;
+      padding: 5px 6px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: inherit;
+      background: transparent;
+    }
+    .cell-input:focus, .cell-select:focus {
+      outline: none;
+      border-color: var(--navy);
+      background: white;
+      box-shadow: 0 0 0 2px rgba(13,38,77,0.1);
+    }
+    .details-col { min-width: 220px; max-width: 320px; }
+    .details-col .cell-input { font-weight: 500; }
+    .status-Completed { color: #166534; font-weight: 600; }
+    .status-Ongoing, .status-Started { color: #1d4ed8; font-weight: 600; }
+    .status-Pending { color: #b45309; font-weight: 600; }
+    .status-Stopped, .status-Cancelled { color: #b91c1c; font-weight: 600; }
+    .status-Qualified { color: #166534; font-weight: 600; }
+    .status-Received, .status-Under\ Review { color: #b45309; font-weight: 600; }
+    .status-Rejected, .status-Deferred { color: #6b7280; font-weight: 600; }
+    /* Action buttons in rows */
+    .row-actions { display: flex; gap: 5px; flex-wrap: nowrap; align-items: center; }
+    .btn-expand {
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #7dd3fc;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-expand:hover { background: #bae6fd; }
+    .btn-edit {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-edit:hover { background: #fde68a; }
+    .btn-convert {
+      background: var(--danger);
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-convert:hover { background: #991b1b; }
+    .btn-convert:disabled { opacity: 0.45; cursor: not-allowed; }
+    .mark-converted {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+    .icon-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .icon-btn.delete:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+    /* Detail panel */
+    .detail-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(13,38,77,0.45);
+      z-index: 200;
+      overflow-y: auto;
+      padding: 20px 12px;
+    }
+    .detail-overlay.open { display: block; }
+    .detail-panel {
+      max-width: 820px;
+      margin: 0 auto 40px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }
+    .detail-header {
+      background: var(--navy);
+      color: white;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .detail-header h2 { font-size: 1.05rem; font-weight: 700; }
+    .detail-header .meta { font-size: 0.75rem; opacity: 0.85; }
+    .detail-body { padding: 18px; }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 600px) { .detail-grid { grid-template-columns: 1fr; } }
+    .detail-field label {
+      display: block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 3px;
+    }
+    .detail-field input, .detail-field select, .detail-field textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-family: inherit;
+    }
+    .detail-field input:focus, .detail-field select:focus, .detail-field textarea:focus {
+      outline: none;
+      border-color: var(--navy);
+      box-shadow: 0 0 0 3px rgba(13,38,77,0.1);
+    }
+    .detail-field.full { grid-column: 1 / -1; }
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .ai-box {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .ai-box h4 { font-size: 0.9rem; color: #9a3412; margin-bottom: 6px; }
+    .ai-box p { font-size: 0.8rem; color: #9a3412; margin-bottom: 10px; }
+    /* Modals */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(13,38,77,0.5);
+      z-index: 300;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 10px;
+      padding: 22px;
+      width: 90%;
+      max-width: 380px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    }
+    .modal h3 { font-size: 1rem; margin-bottom: 6px; }
+    .modal p { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
+    .modal label { display: block; font-size: 0.75rem; font-weight: 600; margin-bottom: 3px; }
+    .modal input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    .auth-error { color: var(--danger); font-size: 0.8rem; display: none; margin-bottom: 8px; }
+    .auth-error.show { display: block; }
+    /* Toast */
+    .toast {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--navy);
+      color: white;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      z-index: 400;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      max-width: 90%;
+      text-align: center;
+    }
+    .toast.show { opacity: 1; }
+    .toast.error { background: var(--danger); }
+    .toast.success { background: var(--success); }
+    .section-panel { display: none; }
+    .section-panel.active { display: block; }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top">
+      <img src="forecourt-logo-mark.png" alt="FSW Logo" />
+      <div>
+        <h1>FORECOURT WORKS LTD</h1>
+        <div class="tag">Engineering Reliability Into Every Forecourt · Controlled Registers</div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-navy btn-sm" id="btn-audit">Audit Trail</button>
+      </div>
+    </div>
+    <div class="section-tabs">
+      <button type="button" class="section-tab active" data-section="sr">
+        SERVICE REQUEST REGISTER
+        <span class="tab-sub">Record all incoming work requests here</span>
+      </button>
+      <button type="button" class="section-tab" data-section="qt">
+        QUOTATION
+        <span class="tab-sub">Build &amp; issue client quotations</span>
+      </button>
+      <button type="button" class="section-tab" data-section="wo">
+        WORK ORDER REGISTER
+        <span class="tab-sub">Authorised jobs · internal control</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ========== SR SECTION ========== -->
+  <div class="section-panel active" id="section-sr">
+    <div class="toolbar" id="sr-toolbar">
+      <div class="field">
+        <label>Client</label>
+        <input type="text" id="sr-q-client" placeholder="Filter client" />
+      </div>
+      <div class="field">
+        <label>SR No</label>
+        <input type="text" id="sr-q-no" placeholder="e.g. 00071" />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="sr-q-status">
+          <option value="">All</option>
+          <option value="Received">Received</option>
+          <option value="Under Review">Under Review</option>
+          <option value="Qualified">Qualified</option>
+          <option value="Rejected">Rejected</option>
+          <option value="Deferred">Deferred</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Converted</label>
+        <select id="sr-q-converted">
+          <option value="">All</option>
+          <option value="no">Not converted</option>
+          <option value="yes">Converted</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" id="sr-btn-reset">Reset</button>
+      <div class="spacer"></div>
+      <span class="view-info" id="sr-view-info">—</span>
+      <button type="button" class="btn btn-primary btn-sm" id="sr-btn-add">+ ADD SERVICE REQUEST</button>
+      <button type="button" class="btn btn-outline btn-sm" id="sr-btn-export">Export PDF</button>
+    </div>
+    <div class="container">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>SR No</th>
+              <th>Request Date</th>
+              <th>Client</th>
+              <th>Site</th>
+              <th class="details-col">Job Details</th>
+              <th>Work Type</th>
+              <th>Triage</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sr-tbody"></tbody>
+        </table>
+        <div class="empty-state" id="sr-empty" style="display:none;">No service requests yet. Click + ADD SERVICE REQUEST to create the first entry (SR#00071).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== WO SECTION ========== -->
+  <div class="section-panel" id="section-wo">
+    <div class="toolbar" id="wo-toolbar">
+      <div class="field">
+        <label>Client</label>
+        <input type="text" id="wo-q-client" placeholder="Filter client" />
+      </div>
+      <div class="field">
+        <label>WO No</label>
+        <input type="text" id="wo-q-no" placeholder="e.g. 00071" />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="wo-q-status">
+          <option value="">All</option>
+          <option value="Completed">Completed</option>
+          <option value="Ongoing">Ongoing</option>
+          <option value="Pending">Pending</option>
+          <option value="Started">Started</option>
+          <option value="Stopped">Stopped</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>From</label>
+        <input type="text" id="wo-q-from" placeholder="DD.MM.YYYY" />
+      </div>
+      <div class="field">
+        <label>To</label>
+        <input type="text" id="wo-q-to" placeholder="DD.MM.YYYY" />
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" id="wo-btn-reset">Reset</button>
+      <div class="spacer"></div>
+      <span class="view-info" id="wo-view-info">—</span>
+      <button type="button" class="btn btn-primary btn-sm" id="wo-btn-add">+ ADD WORK ORDER</button>
+      <button type="button" class="btn btn-outline btn-sm" id="wo-btn-export">Export PDF</button>
+    </div>
+    <div class="container">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>WO No</th>
+              <th>Type</th>
+              <th>Entry</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Status</th>
+              <th>Client</th>
+              <th>Location</th>
+              <th class="details-col">Job Details</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="wo-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== QUOTATION SECTION ========== -->
+  <div class="section-panel" id="section-qt">
+    <div class="quote-shell">
+      <div class="quote-nav">
+        <button type="button" class="btn btn-outline btn-sm" id="qt-btn-return">← Return</button>
+        <span class="hint" id="qt-nav-hint">Standalone quotation workspace. Use Return to go back to the previous register.</span>
+        <button type="button" class="btn btn-primary btn-sm" id="qt-btn-refresh" title="Reload quotation form">Refresh form</button>
+        <a class="btn btn-outline btn-sm" id="qt-btn-standalone" href="quotes/index.html" target="_blank" rel="noopener">Open standalone ↗</a>
+      </div>
+      <iframe id="quote-frame" class="quote-frame" title="Quotation Builder" src="quotes/index.html"></iframe>
+    </div>
+  </div>
+
+  <!-- Detail overlay -->
+  <div class="detail-overlay" id="detail-overlay">
+    <div class="detail-panel">
+      <div class="detail-header">
+        <div>
+          <h2 id="detail-title">—</h2>
+          <div class="meta" id="detail-meta">—</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-navy btn-sm" id="detail-btn-home">← Return to Homepage</button>
+          <button type="button" class="btn btn-navy btn-sm" id="detail-btn-pdf">Export to PDF</button>
+        </div>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Auth modal -->
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal">
+      <h3 id="auth-title">Admin Authorisation Required</h3>
+      <p id="auth-msg">Enter Document Control Admin name and password.</p>
+      <div class="auth-error" id="auth-error">Invalid credentials.</div>
+      <label>Admin Name</label>
+      <input type="text" id="auth-name" autocomplete="username" />
+      <label>Password</label>
+      <input type="password" id="auth-pass" autocomplete="current-password" />
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="auth-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="auth-confirm">Authorise</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirm -->
+  <div class="modal-backdrop" id="delete-modal">
+    <div class="modal">
+      <h3 id="delete-title">Delete entry?</h3>
+      <p id="delete-msg">This action requires admin authorisation and will be logged.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="delete-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="delete-confirm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit modal -->
+  <div class="modal-backdrop" id="audit-modal">
+    <div class="modal" style="max-width:640px;max-height:80vh;overflow:auto;">
+      <h3>Audit Trail</h3>
+      <div id="audit-content"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="audit-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="registers-app.js"></script>
+</body>
+</html>
