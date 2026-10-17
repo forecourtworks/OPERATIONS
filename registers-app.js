@@ -187,7 +187,18 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
           ? 'Opened from Service Request — complete the quotation, then Return.'
           : 'Standalone quotation workspace. Return goes back to ' + from + '.';
       }
+      ensureQuoteFrameLoaded();
       if (opts.prefill) prefillQuoteFrame(opts.prefill);
+    }
+  }
+
+  function ensureQuoteFrameLoaded() {
+    const frame = document.getElementById('quote-frame');
+    if (!frame) return;
+    const target = frame.getAttribute('data-src') || 'quotes/index.html';
+    const cur = frame.getAttribute('src') || '';
+    if (!cur || cur === 'about:blank' || cur === 'about:blank') {
+      frame.src = target;
     }
   }
 
@@ -953,11 +964,9 @@ const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"
       document.getElementById('audit-modal').classList.remove('open');
 
     // Restore last active section so switching device apps/tabs does not reset view
-    let savedSec = 'sr';
-    try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {}
     try { returnSection = localStorage.getItem('fsw_register_return') || 'sr'; } catch (_) {}
-    if (savedSec !== 'sr' && savedSec !== 'wo' && savedSec !== 'qt') savedSec = 'sr';
-    // Hash deep-link wins: #sr | #qt | #wo → open that tab (standalone entry points)
+    // Always open on Service Request unless URL hash explicitly requests another tab
+    let savedSec = 'sr';
     try {
       const h = (location.hash || '').replace(/^#/, '').toLowerCase();
       if (h === 'sr' || h === 'wo' || h === 'qt') savedSec = h;

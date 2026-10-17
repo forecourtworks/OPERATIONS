@@ -62,26 +62,29 @@
     /* Section tabs — distinct colour blocks with clear separation */
     .section-tabs {
       display: flex;
-      gap: 14px;
-      padding: 0 0 12px;
+      gap: 10px;
+      padding: 4px 0 12px;
       border-bottom: none;
+      flex-wrap: nowrap;
+      width: 100%;
     }
     .section-tab {
-      flex: 1;
-      max-width: 420px;
-      padding: 12px 18px 14px;
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 12px 12px 14px;
       font-weight: 700;
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       letter-spacing: 0.02em;
-      color: rgba(255,255,255,0.85);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.18);
+      color: #fff;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.35);
       border-radius: 10px 10px 0 0;
       cursor: pointer;
       font-family: inherit;
-      text-align: left;
+      text-align: center;
       line-height: 1.25;
       transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
     }
     .section-tab .tab-sub {
       display: block;
@@ -479,16 +482,16 @@
     </div>
     <div class="section-tabs">
       <button type="button" class="section-tab active" data-section="sr">
-        SERVICE REQUEST REGISTER
-        <span class="tab-sub">Record all incoming work requests here</span>
+        1 · SERVICE REQUEST
+        <span class="tab-sub">Incoming work requests</span>
       </button>
       <button type="button" class="section-tab" data-section="qt">
-        QUOTATION
-        <span class="tab-sub">Build &amp; issue client quotations</span>
+        2 · QUOTATION
+        <span class="tab-sub">Build &amp; issue quotes</span>
       </button>
       <button type="button" class="section-tab" data-section="wo">
-        WORK ORDER REGISTER
-        <span class="tab-sub">Authorised jobs · internal control</span>
+        3 · WORK ORDER
+        <span class="tab-sub">Authorised jobs</span>
       </button>
     </div>
   </header>
@@ -620,7 +623,7 @@
         <button type="button" class="btn btn-primary btn-sm" id="qt-btn-refresh" title="Reload quotation form">Refresh form</button>
         <a class="btn btn-outline btn-sm" id="qt-btn-standalone" href="quotes/index.html" target="_blank" rel="noopener">Open standalone ↗</a>
       </div>
-      <iframe id="quote-frame" class="quote-frame" title="Quotation Builder" src="quotes/index.html"></iframe>
+      <iframe id="quote-frame" class="quote-frame" title="Quotation Builder" src="about:blank" data-src="quotes/index.html"></iframe>
     </div>
   </div>
 
