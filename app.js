@@ -1,91 +1,125 @@
 /**
- * FORECOURT WORKS LTD — Work Order Register (Controlled Document)
- * Admin authorisation required for ADD / EDIT / DELETE.
- * Audit trail of every change with admin name, date and time.
+ * FORECOURT WORKS LTD — SR & WO Registers (Controlled Document)
+ * Two-section app: Sales Request Register + Work Order Register
+ * Layered: Overview (summary rows) ↔ Detail (Expand)
+ * SR Convert → creates WO, lifts data, opens WO detail
  */
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'fsw_wo_register_v1';
-  const AUDIT_KEY = 'fsw_wo_register_audit_v1';
-  const STATUS_OPTS = ['Completed', 'Ongoing', 'Pending', 'Started', 'Stopped', 'Cancelled'];
-  const TYPE_OPTS = ['Labour Only', 'Parts + Labour', 'Parts Only', ''];
+  const SR_KEY = 'fsw_sr_register_v1';
+  const WO_KEY = 'fsw_wo_register_v2';
+  const AUDIT_KEY = 'fsw_registers_audit_v1';
 
-  // Document Control Admins (passwords stored as SHA-256 hex)
-  // Admin 1: Oguta  / 1986!@
-  // Admin 2: Kamando / 2004!@
+  const WO_STATUS = ['Completed', 'Ongoing', 'Pending', 'Started', 'Stopped', 'Cancelled'];
+  const SR_STATUS = ['Received', 'Under Review', 'Qualified', 'Rejected', 'Deferred'];
+  const TYPE_OPTS = ['Labour Only', 'Parts + Labour', 'Parts Only', 'Emergency Repair', 'Preventive Maintenance', 'Calibration', 'Installation / Commissioning', 'Compliance Inspection', 'Other'];
+  const WORK_TYPES = ['Diagnosis & On-Site Corrective Repair + Calibration Verification', 'Preventive Maintenance (PM)', 'Emergency Repair', 'Installation / Commissioning', 'Calibration / Accuracy Verification', 'Compliance Audit / Inspection', 'Cleaning / Filter Change', 'Other'];
+
   const ADMINS = [
     { name: 'Oguta', hash: 'e4dd5bd04b25dd2902a92a4a14217d922dffd0786e2e786d34ae794689871efc' },
     { name: 'Kamando', hash: '27da462fd0cbe25e7b8c04cb674db6a7a7488fcd16c72ccb1bd86135cb2585b7' }
   ];
 
-  // Seed data (historical 0001–0068)
-  const SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","title":"TYRE INFLATOR INSTALLATION","zoho":"00128","etims":"","inv":"4,000.00","paid":"4,000.00","bal":"0.00"},{"wo":"0002","type":"Labour Only","entry":"24.12.25","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA RD","title":"AST PIPING","zoho":"00129","etims":"","inv":"30,000.00","paid":"30,000.00","bal":"0.00"},{"wo":"0003","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","title":"FDU#4 (WAYNE 3G) KEYPADS","zoho":"00137","etims":"","inv":"14,700.00","paid":"14,700.00","bal":"0.00"},{"wo":"0004","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","title":"PM Inspections & CA","zoho":"00132","etims":"","inv":"38,500.00","paid":"38,500.00","bal":"0.00"},{"wo":"0005","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"PUMWANI","title":"FDU#003 REPAIR","zoho":"00136","etims":"","inv":"8,800.00","paid":"8,800.00","bal":"0.00"},{"wo":"0006","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"KALOLENI","title":"FDU#01, GILBERCO VEEDER ROOT","zoho":"00138","etims":"","inv":"6,500.00","paid":"6,500.00","bal":"0.00"},{"wo":"0007","type":"Parts + Labour","entry":"29.11.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","title":"FDU#2 REPAIR (TOKHEIM)","zoho":"00121","etims":"","inv":"62,870.00","paid":"2,000.00","bal":"60,870.00"},{"wo":"0008","type":"Parts + Labour","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"SABAKI","title":"COMPRESSED AIR PIPING - Rework","zoho":"00106","etims":"","inv":"48,000.00","paid":"48,000.00","bal":"0.00"},{"wo":"0009","type":"Parts + Labour","entry":"20.12.2025","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","title":"PM Inspections & CA","zoho":"00127","etims":"","inv":"64,930.00","paid":"64,930.00","bal":"0.00"},{"wo":"0010","type":"Labour Only","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","title":"GARAGE EQUIPMENT SERVICING","zoho":"00124","etims":"","inv":"18,000.00","paid":"0.00","bal":"18,000.00"},{"wo":"0011","type":"Labour Only","entry":"10.10.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","title":"WHEEL ALIGNMENT MACHINE INSTALLATION","zoho":"0018","etims":"","inv":"10,000.00","paid":"0.00","bal":"10,000.00"},{"wo":"0012","type":"Parts + Labour","entry":"07.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","title":"GENSET ROOM & M.HOLE REPAIRS","zoho":"00139","etims":"","inv":"28,745.00","paid":"28,745.00","bal":"0.00"},{"wo":"0013","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"TARABI","location":"NAMANGA","title":"AIR COMPRESSOR REPAIR","zoho":"00140","etims":"","inv":"5,000.00","paid":"5,000.00","bal":"0.00"},{"wo":"0014","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"NGONG","title":"FDU CALIBRATION","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0015","type":"Parts + Labour","entry":"17.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","title":"FDU PM Inspections & Servicing","zoho":"00142","etims":"","inv":"64,240.00","paid":"64,240.00","bal":"0.00"},{"wo":"0016","type":"Labour Only","entry":"19.01.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","title":"AIR LINE RELOCATION","zoho":"","etims":"","inv":"5,000.00","paid":"5,000.00","bal":"0.00"},{"wo":"0017","type":"Labour Only","entry":"20.01.2026","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","title":"AIR COMPRESSOR RELOCATION","zoho":"00144","etims":"","inv":"3,000.00","paid":"3,000.00","bal":"0.00"},{"wo":"0018","type":"","entry":"21.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"MARIAKANI","title":"FDU REPAIR","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0019","type":"Labour Only","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"MOMBASA","title":"REWORK - AIR COMPRESSOR REPAIR","zoho":"00146","etims":"","inv":"27,500.00","paid":"27,500.00","bal":"0.00"},{"wo":"0020","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","title":"FDU PM","zoho":"00149","etims":"","inv":"50,399.00","paid":"50,000.00","bal":"399.00"},{"wo":"0021","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Ongoing","client":"TAHMEED","location":"BONJE","title":"REMEDIATION OF UST'S","zoho":"00153","etims":"","inv":"350,000.00","paid":"250,000.00","bal":"100,000.00"},{"wo":"0022","type":"Parts Only","entry":"03.02.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","title":"FDU's HOSE PURCHASE & DELIVERY","zoho":"00147","etims":"","inv":"7,500.00","paid":"7,500.00","bal":"0.00"},{"wo":"0023","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","title":"FDU MAINTENANCE","zoho":"00148","etims":"","inv":"48,500.00","paid":"48,500.00","bal":"0.00"},{"wo":"0024","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"RADIUS CIRCLE","location":"KILIFI","title":"5T JACK SEALS REPLACEMENT","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0025","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"RANWAY","location":"KIKAMBALA","title":"COMPRESSED AIR RETICULATION","zoho":"00151","etims":"","inv":"24,100.00","paid":"22,000.00","bal":"2,100.00"},{"wo":"0026","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"MANCO","location":"MIKINDANI","title":"UST FABRICATION","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0027","type":"Labour Only","entry":"18.02.2026","start":"","end":"","status":"Pending","client":"TRIKAKA","location":"UKUNDA","title":"GENSET SERVICE","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0028","type":"Labour Only","entry":"","start":"","end":"","status":"Pending","client":"STARWAYS","location":"PORT REITZ","title":"FUEL SYSTEM PIPING","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0029","type":"Labour Only","entry":"07.03.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","title":"AIRGUAGE REPAIR","zoho":"00152","etims":"","inv":"2,000.00","paid":"2,000.00","bal":"0.00"},{"wo":"0030","type":"Parts Only","entry":"","start":"","end":"","status":"Pending","client":"MOSHA","location":"MARIAKANI","title":"MANHOLE COVER GASKET","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0031","type":"","entry":"13.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","title":"SUPPLY AND INSTALLATION","zoho":"00154","etims":"","inv":"8,950.00","paid":"8,950.00","bal":"0.00"},{"wo":"0032","type":"Parts Only","entry":"16.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","title":"SAFETY DECALS SUPPLY","zoho":"00155","etims":"","inv":"9,600.00","paid":"9,600.00","bal":"0.00"},{"wo":"0033","type":"Parts + Labour","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"NYALI LINKS RD","location":"MAVUENI","title":"SUPPLY OF STICK ON WEIGHTS","zoho":"00123","etims":"","inv":"28,700.00","paid":"28,700.00","bal":""},{"wo":"0034","type":"Labour Only","entry":"20.03.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","title":"GENSET PM SERVICE","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0035","type":"Parts + Labour","entry":"25.03.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","title":"FDU FLOW RATE RECTIFICATION","zoho":"00156","etims":"","inv":"11,000.00","paid":"11,000.00","bal":"0.00"},{"wo":"0036","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTIDEAL","location":"KOMBANI","title":"AIR COMPRESSOR MAINTENANCE","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0037","type":"Labour Only","entry":"06.04.2026","start":"","end":"","status":"Pending","client":"EAGOL","location":"VIPINGO","title":"GARAGE EQ'PMENT INSTALLATION","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0038","type":"Labour Only","entry":"07.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","title":"AST#004 LADDER FABRICATION","zoho":"00161","etims":"","inv":"15,000.00","paid":"15,000.00","bal":"0.00"},{"wo":"0039","type":"Labour Only","entry":"08.04.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","title":"FDU TROUBLESHOOTING & REPAIR","zoho":"00157","etims":"","inv":"6,000.00","paid":"6,000.00","bal":"0.00"},{"wo":"0040","type":"Parts + Labour","entry":"10.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","title":"REWORK - CHANGE OF CLOGGED FILTER","zoho":"00158","etims":"","inv":"0.00","paid":"0.00","bal":"0.00"},{"wo":"0041","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","title":"TANK#002 CLEANING","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0042","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","title":"AGO TRANSFER PUMP SERVICING","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0043","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","title":"CALIBRATION OF TANK#004","zoho":"00159","etims":"","inv":"78,000.00","paid":"78,000.00","bal":"0.00"},{"wo":"0044","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BONJE","title":"FDU, AST, BLACKMER & STP PM","zoho":"","etims":"","inv":"0.00","paid":"","bal":""},{"wo":"0045","type":"Parts Only","entry":"18.04.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","title":"SUPPLY OF 2PCS ¾\" FDU HOSE","zoho":"00160","etims":"","inv":"11,000.00","paid":"10,000.00","bal":"1,000.00"},{"wo":"0046","type":"Parts + Labour","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","title":"AST#004 PIPING","zoho":"00163","etims":"","inv":"60,000.00","paid":"60,000.00","bal":"0.00"},{"wo":"0047","type":"Labour Only","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","title":"STP MECH/ELECT INSTALLATION TK#004","zoho":"00164","etims":"","inv":"15,000.00","paid":"15,000.00","bal":"0.00"},{"wo":"0048","type":"Labour Only","entry":"04.05.2026","start":"09.07.2026","end":"09.07.2026","status":"Completed","client":"NOMAD","location":"KISERIAN","title":"WHEEL ALIGNMENT MACHINE REPAIR","zoho":"00166","etims":"KRASRN000258075/12","inv":"42,400.00","paid":"42,400.00","bal":""},{"wo":"0049","type":"Parts + Labour","entry":"04.05.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NOMAD","location":"KISERIAN","title":"4 POST LIFT MAINTENANCE","zoho":"00168","etims":"KRASRN000258075/11","inv":"14,500.00","paid":"14,500.00","bal":""},{"wo":"0050","type":"Parts Only","entry":"21.05.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","title":"SUPPLY 3No. FDU V-Belt","zoho":"00162","etims":"","inv":"4,500.00","paid":"4,000.00","bal":"500.00"},{"wo":"0051","type":"Parts + Labour","entry":"02.06.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","title":"WHIP HOSE REPLACEMENT","zoho":"00165","etims":"","inv":"11,000.00","paid":"6,960.00","bal":"4,040.00"},{"wo":"0052","type":"Parts + Labour","entry":"07.06.2026","start":"07.06.2026","end":"07.06.2026","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","title":"REPAIR AIRGAUGE'S UNRESPONSIVE (+) BUTTON","zoho":"00166","etims":"","inv":"900.00","paid":"900.00","bal":"0.00"},{"wo":"0053","type":"Parts + Labour","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NEWLIFE","location":"MAVUENI 1","title":"FDU LEAK REPAIR","zoho":"00167","etims":"","inv":"13,000.00","paid":"","bal":"13,000.00"},{"wo":"0054","type":"Parts Only","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","title":"SALE OF TWIN TYRE CONNECTOR","zoho":"00169","etims":"","inv":"3,500.00","paid":"3,500.00","bal":"0.00"},{"wo":"0055","type":"Labour Only","entry":"10.07.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","title":"WHEEL ALIGNER DIAGNOSIS & REPAIR","zoho":"","etims":"","inv":"10,000.00","paid":"5,000.00","bal":"5,000.00"},{"wo":"0056","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"EAGOL-VIPINGO","location":"VIPINGO","title":"UST LID MODIFICATION & STP INSTALLATION","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0057","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","title":"AIR COMPRESSOR SERVICE","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0058","type":"Labour Only","entry":"27.07.2026","start":"27.07.2026","end":"28.07.2026","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","title":"TYRE INFLATOR HOSE REPLACEMENT","zoho":"00177","etims":"","inv":"7,500.00","paid":"7,500.00","bal":"0.00"},{"wo":"0059","type":"Parts + Labour","entry":"01.08.2026","start":"","end":"","status":"","client":"MASS","location":"VOI","title":"FUEL SYSTEM PIPING","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0060","type":"Parts Only","entry":"13.08.2026","start":"13.08.2026","end":"13.08.2026","status":"Completed","client":"MASS","location":"MAKUPA","title":"SUPPLY OF ¾\" FDU HOSE - 1PC","zoho":"00178","etims":"","inv":"4,500.00","paid":"4,500.00","bal":"0.00"},{"wo":"0061","type":"","entry":"17.08.2026","start":"17.08.2026","end":"17.08.2026","status":"Completed","client":"PMC","location":"NAIROBI","title":"SALES COMMISSION","zoho":"N/A","etims":"","inv":"30,000.00","paid":"30,000.00","bal":"0.00"},{"wo":"0062","type":"Labour Only","entry":"17.08.2026","start":"21.08.2026","end":"","status":"","client":"MULTI DEAL","location":"KOMBANI","title":"FRP MANHOLE COVER INSTALLATION","zoho":"","etims":"","inv":"35,000.00","paid":"","bal":"35,000.00"},{"wo":"0063","type":"Labour Only","entry":"23.08.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","title":"REPAIR OF LLJ08 FLOWMETER","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0064","type":"Labour Only","entry":"05.09.2026","start":"05.09.2026","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","title":"CONDITION INSPECTION","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0065","type":"Labour Only","entry":"","start":"","end":"","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","title":"CARWASH REPAIR","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0066","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NEW LIFE","location":"MAVUENI","title":"STP INSTALLATION","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0067","type":"","entry":"","start":"","end":"","status":"","client":"AINUSHAMSI","location":"PUMWANI","title":"CONDITION INSPECTION","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"},{"wo":"0068","type":"","entry":"","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","title":"MOTOR PROTECTION","zoho":"","etims":"","inv":"","paid":"","bal":"0.00"}];
+  // Historical WO seed 0001–0068 (commercial columns purged; title → details)
+const WO_SEED = [{"wo":"0001","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"TYRE INFLATOR INSTALLATION","sr":"","aiDone":false},{"wo":"0002","type":"Labour Only","entry":"24.12.25","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA RD","details":"AST PIPING","sr":"","aiDone":false},{"wo":"0003","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","details":"FDU#4 (WAYNE 3G) KEYPADS","sr":"","aiDone":false},{"wo":"0004","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"PM Inspections & CA","sr":"","aiDone":false},{"wo":"0005","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"PUMWANI","details":"FDU#003 REPAIR","sr":"","aiDone":false},{"wo":"0006","type":"Parts + Labour","entry":"07.01.26","start":"","end":"","status":"Completed","client":"AINU","location":"KALOLENI","details":"FDU#01, GILBERCO VEEDER ROOT","sr":"","aiDone":false},{"wo":"0007","type":"Parts + Labour","entry":"29.11.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","details":"FDU#2 REPAIR (TOKHEIM)","sr":"","aiDone":false},{"wo":"0008","type":"Parts + Labour","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"SALAMA ROADS","location":"SABAKI","details":"COMPRESSED AIR PIPING - Rework","sr":"","aiDone":false},{"wo":"0009","type":"Parts + Labour","entry":"20.12.2025","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"PM Inspections & CA","sr":"","aiDone":false},{"wo":"0010","type":"Labour Only","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","details":"GARAGE EQUIPMENT SERVICING","sr":"","aiDone":false},{"wo":"0011","type":"Labour Only","entry":"10.10.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"TONONOKA","details":"WHEEL ALIGNMENT MACHINE INSTALLATION","sr":"","aiDone":false},{"wo":"0012","type":"Parts + Labour","entry":"07.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"KALOLENI","details":"GENSET ROOM & M.HOLE REPAIRS","sr":"","aiDone":false},{"wo":"0013","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"TARABI","location":"NAMANGA","details":"AIR COMPRESSOR REPAIR","sr":"","aiDone":false},{"wo":"0014","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"NOMAD","location":"NGONG","details":"FDU CALIBRATION","sr":"","aiDone":false},{"wo":"0015","type":"Parts + Labour","entry":"17.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","details":"FDU PM Inspections & Servicing","sr":"","aiDone":false},{"wo":"0016","type":"Labour Only","entry":"19.01.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"AIR LINE RELOCATION","sr":"","aiDone":false},{"wo":"0017","type":"Labour Only","entry":"20.01.2026","start":"","end":"","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"AIR COMPRESSOR RELOCATION","sr":"","aiDone":false},{"wo":"0018","type":"","entry":"21.01.2026","start":"","end":"","status":"Completed","client":"AINUSHAMSI","location":"MARIAKANI","details":"FDU REPAIR","sr":"","aiDone":false},{"wo":"0019","type":"Labour Only","entry":"31.07.2025","start":"","end":"","status":"Completed","client":"HAKUUZ","location":"MOMBASA","details":"REWORK - AIR COMPRESSOR REPAIR","sr":"","aiDone":false},{"wo":"0020","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"FDU PM","sr":"","aiDone":false},{"wo":"0021","type":"Parts + Labour","entry":"28.01.2026","start":"","end":"","status":"Ongoing","client":"TAHMEED","location":"BONJE","details":"REMEDIATION OF UST'S","sr":"","aiDone":false},{"wo":"0022","type":"Parts Only","entry":"03.02.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"FDU's HOSE PURCHASE & DELIVERY","sr":"","aiDone":false},{"wo":"0023","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","details":"FDU MAINTENANCE","sr":"","aiDone":false},{"wo":"0024","type":"Parts + Labour","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"RADIUS CIRCLE","location":"KILIFI","details":"5T JACK SEALS REPLACEMENT","sr":"","aiDone":false},{"wo":"0025","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Completed","client":"RANWAY","location":"KIKAMBALA","details":"COMPRESSED AIR RETICULATION","sr":"","aiDone":false},{"wo":"0026","type":"Labour Only","entry":"05.02.2026","start":"","end":"","status":"Pending","client":"MANCO","location":"MIKINDANI","details":"UST FABRICATION","sr":"","aiDone":false},{"wo":"0027","type":"Labour Only","entry":"18.02.2026","start":"","end":"","status":"Pending","client":"TRIKAKA","location":"UKUNDA","details":"GENSET SERVICE","sr":"","aiDone":false},{"wo":"0028","type":"Labour Only","entry":"","start":"","end":"","status":"Pending","client":"STARWAYS","location":"PORT REITZ","details":"FUEL SYSTEM PIPING","sr":"","aiDone":false},{"wo":"0029","type":"Labour Only","entry":"07.03.2026","start":"","end":"","status":"Completed","client":"MOSHA","location":"MARIAKANI","details":"AIRGUAGE REPAIR","sr":"","aiDone":false},{"wo":"0030","type":"Parts Only","entry":"","start":"","end":"","status":"Pending","client":"MOSHA","location":"MARIAKANI","details":"MANHOLE COVER GASKET","sr":"","aiDone":false},{"wo":"0031","type":"","entry":"13.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","details":"SUPPLY AND INSTALLATION","sr":"","aiDone":false},{"wo":"0032","type":"Parts Only","entry":"16.03.2026","start":"","end":"","status":"Completed","client":"NEWLIFE","location":"MAVUENI","details":"SAFETY DECALS SUPPLY","sr":"","aiDone":false},{"wo":"0033","type":"Parts + Labour","entry":"02.12.2025","start":"","end":"","status":"Completed","client":"NYALI LINKS RD","location":"MAVUENI","details":"SUPPLY OF STICK ON WEIGHTS","sr":"","aiDone":false},{"wo":"0034","type":"Labour Only","entry":"20.03.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","details":"GENSET PM SERVICE","sr":"","aiDone":false},{"wo":"0035","type":"Parts + Labour","entry":"25.03.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"FDU FLOW RATE RECTIFICATION","sr":"","aiDone":false},{"wo":"0036","type":"Labour Only","entry":"","start":"","end":"","status":"Completed","client":"MULTIDEAL","location":"KOMBANI","details":"AIR COMPRESSOR MAINTENANCE","sr":"","aiDone":false},{"wo":"0037","type":"Labour Only","entry":"06.04.2026","start":"","end":"","status":"Pending","client":"EAGOL","location":"VIPINGO","details":"GARAGE EQ'PMENT INSTALLATION","sr":"","aiDone":false},{"wo":"0038","type":"Labour Only","entry":"07.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"AST#004 LADDER FABRICATION","sr":"","aiDone":false},{"wo":"0039","type":"Labour Only","entry":"08.04.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"FDU TROUBLESHOOTING & REPAIR","sr":"","aiDone":false},{"wo":"0040","type":"Parts + Labour","entry":"10.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BUNYALA","details":"REWORK - CHANGE OF CLOGGED FILTER","sr":"","aiDone":false},{"wo":"0041","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","details":"TANK#002 CLEANING","sr":"","aiDone":false},{"wo":"0042","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BUNYALA","details":"AGO TRANSFER PUMP SERVICING","sr":"","aiDone":false},{"wo":"0043","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"CALIBRATION OF TANK#004","sr":"","aiDone":false},{"wo":"0044","type":"Parts + Labour","entry":"11.04.2026","start":"","end":"","status":"Pending","client":"TAHMEED","location":"BONJE","details":"FDU, AST, BLACKMER & STP PM","sr":"","aiDone":false},{"wo":"0045","type":"Parts Only","entry":"18.04.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"SUPPLY OF 2PCS \u00be\" FDU HOSE","sr":"","aiDone":false},{"wo":"0046","type":"Parts + Labour","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"AST#004 PIPING","sr":"","aiDone":false},{"wo":"0047","type":"Labour Only","entry":"28.04.2026","start":"","end":"","status":"Completed","client":"TAHMEED","location":"BONJE","details":"STP MECH/ELECT INSTALLATION TK#004","sr":"","aiDone":false},{"wo":"0048","type":"Labour Only","entry":"04.05.2026","start":"09.07.2026","end":"09.07.2026","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"WHEEL ALIGNMENT MACHINE REPAIR","sr":"","aiDone":false},{"wo":"0049","type":"Parts + Labour","entry":"04.05.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NOMAD","location":"KISERIAN","details":"4 POST LIFT MAINTENANCE","sr":"","aiDone":false},{"wo":"0050","type":"Parts Only","entry":"21.05.2026","start":"","end":"","status":"Completed","client":"KENNYLAX","location":"LONGISA","details":"SUPPLY 3No. FDU V-Belt","sr":"","aiDone":false},{"wo":"0051","type":"Parts + Labour","entry":"02.06.2026","start":"","end":"","status":"Completed","client":"NOMAD","location":"KISERIAN","details":"WHIP HOSE REPLACEMENT","sr":"","aiDone":false},{"wo":"0052","type":"Parts + Labour","entry":"07.06.2026","start":"07.06.2026","end":"07.06.2026","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","details":"REPAIR AIRGAUGE'S UNRESPONSIVE (+) BUTTON","sr":"","aiDone":false},{"wo":"0053","type":"Parts + Labour","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Ongoing","client":"NEWLIFE","location":"MAVUENI 1","details":"FDU LEAK REPAIR","sr":"","aiDone":false},{"wo":"0054","type":"Parts Only","entry":"09.07.2026","start":"09.07.2026","end":"","status":"Completed","client":"SALAMA ROADS","location":"MALINDI","details":"SALE OF TWIN TYRE CONNECTOR","sr":"","aiDone":false},{"wo":"0055","type":"Labour Only","entry":"10.07.2026","start":"","end":"","status":"Pending","client":"NEWLIFE","location":"MAVUENI","details":"WHEEL ALIGNER DIAGNOSIS & REPAIR","sr":"","aiDone":false},{"wo":"0056","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"EAGOL-VIPINGO","location":"VIPINGO","details":"UST LID MODIFICATION & STP INSTALLATION","sr":"","aiDone":false},{"wo":"0057","type":"","entry":"13.07.2026","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","details":"AIR COMPRESSOR SERVICE","sr":"","aiDone":false},{"wo":"0058","type":"Labour Only","entry":"27.07.2026","start":"27.07.2026","end":"28.07.2026","status":"Completed","client":"MULTI DEAL","location":"KOMBANI","details":"TYRE INFLATOR HOSE REPLACEMENT","sr":"","aiDone":false},{"wo":"0059","type":"Parts + Labour","entry":"01.08.2026","start":"","end":"","status":"","client":"MASS","location":"VOI","details":"FUEL SYSTEM PIPING","sr":"","aiDone":false},{"wo":"0060","type":"Parts Only","entry":"13.08.2026","start":"13.08.2026","end":"13.08.2026","status":"Completed","client":"MASS","location":"MAKUPA","details":"SUPPLY OF \u00be\" FDU HOSE - 1PC","sr":"","aiDone":false},{"wo":"0061","type":"","entry":"17.08.2026","start":"17.08.2026","end":"17.08.2026","status":"Completed","client":"PMC","location":"NAIROBI","details":"SALES COMMISSION","sr":"","aiDone":false},{"wo":"0062","type":"Labour Only","entry":"17.08.2026","start":"21.08.2026","end":"","status":"","client":"MULTI DEAL","location":"KOMBANI","details":"FRP MANHOLE COVER INSTALLATION","sr":"","aiDone":false},{"wo":"0063","type":"Labour Only","entry":"23.08.2026","start":"","end":"","status":"Completed","client":"MASS","location":"UTANGE","details":"REPAIR OF LLJ08 FLOWMETER","sr":"","aiDone":false},{"wo":"0064","type":"Labour Only","entry":"05.09.2026","start":"05.09.2026","end":"","status":"Completed","client":"AINUSHAMSI","location":"PUMWANI","details":"CONDITION INSPECTION","sr":"","aiDone":false},{"wo":"0065","type":"Labour Only","entry":"","start":"","end":"","status":"Ongoing","client":"MOSHA","location":"MARIAKANI","details":"CARWASH REPAIR","sr":"","aiDone":false},{"wo":"0066","type":"Parts + Labour","entry":"","start":"","end":"","status":"Completed","client":"NEW LIFE","location":"MAVUENI","details":"STP INSTALLATION","sr":"","aiDone":false},{"wo":"0067","type":"","entry":"","start":"","end":"","status":"","client":"AINUSHAMSI","location":"PUMWANI","details":"CONDITION INSPECTION","sr":"","aiDone":false},{"wo":"0068","type":"","entry":"","start":"","end":"","status":"","client":"PETROSOMA","location":"SALGAA","details":"MOTOR PROTECTION","sr":"","aiDone":false}];
 
-  let records = [];
-  let filtered = [];
+  let srRecords = [];
+  let woRecords = [];
   let auditLog = [];
-  let showAll = false;
+  let currentSection = 'sr';
+  let detailCtx = null; // { kind: 'sr'|'wo', id: string }
+  let pendingAuth = null;
   let deleteTarget = null;
-  let pendingAuth = null; // { action, resolve, reject, meta }
 
-  // ---------- Crypto helpers ----------
+  // ---------- utils ----------
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function toast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (type ? ' ' + type : '');
+    setTimeout(() => el.classList.remove('show'), 3200);
+  }
   async function sha256Hex(text) {
     const data = new TextEncoder().encode(text);
     const buf = await crypto.subtle.digest('SHA-256', data);
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
-
   async function verifyAdmin(name, password) {
     const n = (name || '').trim().toLowerCase();
     const hash = await sha256Hex(password || '');
     return ADMINS.find(a => a.name.toLowerCase() === n && a.hash === hash) || null;
   }
+  function padNum(n) {
+    return String(n).padStart(5, '0');
+  }
+  function nextSrNo() {
+    let max = 70; // start at 00071
+    srRecords.forEach(r => {
+      const n = parseInt(r.sr, 10);
+      if (!isNaN(n) && n > max) max = n;
+    });
+    return padNum(max + 1);
+  }
+  function nextWoNo() {
+    let max = 70;
+    woRecords.forEach(r => {
+      const n = parseInt(r.wo, 10);
+      if (!isNaN(n) && n > max) max = n;
+    });
+    return padNum(max + 1);
+  }
+  function todayDisp() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2);
+  }
 
-  // ---------- Audit ----------
-  function loadAudit() {
+  // ---------- storage ----------
+  function loadAll() {
+    try {
+      const raw = localStorage.getItem(SR_KEY);
+      srRecords = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(srRecords)) srRecords = [];
+    } catch (_) { srRecords = []; }
+    try {
+      const raw = localStorage.getItem(WO_KEY);
+      if (raw) {
+        woRecords = JSON.parse(raw);
+        if (!Array.isArray(woRecords)) woRecords = [];
+      } else {
+        woRecords = JSON.parse(JSON.stringify(WO_SEED));
+        saveWo();
+      }
+    } catch (_) {
+      woRecords = JSON.parse(JSON.stringify(WO_SEED));
+    }
     try {
       const raw = localStorage.getItem(AUDIT_KEY);
       auditLog = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(auditLog)) auditLog = [];
-    } catch (_) {
-      auditLog = [];
-    }
+    } catch (_) { auditLog = []; }
   }
-
-  function saveAudit() {
-    try {
-      localStorage.setItem(AUDIT_KEY, JSON.stringify(auditLog));
-    } catch (_) {}
+  function saveSr() {
+    try { localStorage.setItem(SR_KEY, JSON.stringify(srRecords)); } catch (_) {}
   }
-
-  function logChange(action, adminName, wo, detail) {
-    const entry = {
-      action: action,
-      admin: adminName,
-      wo: wo || '',
-      detail: detail || '',
+  function saveWo() {
+    try { localStorage.setItem(WO_KEY, JSON.stringify(woRecords)); } catch (_) {}
+  }
+  function logChange(action, adminName, ref, detail) {
+    auditLog.unshift({
+      action, admin: adminName, ref: ref || '', detail: detail || '',
       at: new Date().toISOString()
-    };
-    auditLog.unshift(entry);
-    // keep last 500 entries
+    });
     if (auditLog.length > 500) auditLog = auditLog.slice(0, 500);
-    saveAudit();
+    try { localStorage.setItem(AUDIT_KEY, JSON.stringify(auditLog)); } catch (_) {}
   }
 
-  function formatTs(iso) {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleString('en-GB', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-      });
-    } catch (_) {
-      return iso;
-    }
-  }
-
-  // ---------- Auth modal ----------
+  // ---------- auth ----------
   function requestAuth(actionLabel, meta) {
     return new Promise((resolve, reject) => {
       pendingAuth = { resolve, reject, meta: meta || {}, actionLabel };
@@ -99,600 +133,744 @@
       setTimeout(() => document.getElementById('auth-name').focus(), 50);
     });
   }
-
-  function closeAuth(success, admin) {
-    document.getElementById('auth-modal').classList.remove('open');
-    const p = pendingAuth;
-    pendingAuth = null;
-    if (!p) return;
-    if (success) p.resolve(admin);
-    else p.reject(new Error('cancelled'));
-  }
-
-  async function onAuthOk() {
+  async function onAuthConfirm() {
     const name = document.getElementById('auth-name').value;
     const pass = document.getElementById('auth-pass').value;
     const admin = await verifyAdmin(name, pass);
     if (!admin) {
       document.getElementById('auth-error').classList.add('show');
-      document.getElementById('auth-pass').value = '';
-      document.getElementById('auth-pass').focus();
       return;
     }
-    closeAuth(true, admin);
+    document.getElementById('auth-modal').classList.remove('open');
+    const p = pendingAuth;
+    pendingAuth = null;
+    if (p && p.resolve) p.resolve(admin);
+  }
+  function onAuthCancel() {
+    document.getElementById('auth-modal').classList.remove('open');
+    const p = pendingAuth;
+    pendingAuth = null;
+    if (p && p.reject) p.reject(new Error('cancelled'));
   }
 
-  // ---------- Persistence ----------
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        records = JSON.parse(raw);
-        if (!Array.isArray(records) || records.length === 0) records = JSON.parse(JSON.stringify(SEED));
-      } else {
-        records = JSON.parse(JSON.stringify(SEED));
-      }
-    } catch (e) {
-      records = JSON.parse(JSON.stringify(SEED));
-    }
-    records.sort((a, b) => parseInt(a.wo, 10) - parseInt(b.wo, 10));
-  }
-
-  function save(silent) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      if (!silent) toast('Saved');
-    } catch (e) {
-      toast('Save failed – storage full?');
-    }
-  }
-
-  let saveTimer = null;
-  function scheduleSave() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => save(true), 400);
-  }
-
-  // ---------- Helpers ----------
-  function nextWoNumber() {
-    let max = 0;
-    records.forEach(r => {
-      const n = parseInt(r.wo, 10);
-      if (!isNaN(n) && n > max) max = n;
+  // ---------- section switch ----------
+  function showSection(sec) {
+    currentSection = sec;
+    document.querySelectorAll('.section-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.section === sec);
     });
-    return String(max + 1).padStart(4, '0');
+    document.getElementById('section-sr').classList.toggle('active', sec === 'sr');
+    document.getElementById('section-wo').classList.toggle('active', sec === 'wo');
+    if (sec === 'sr') renderSrTable();
+    else renderWoTable();
   }
 
-  function calcBal(inv, paid) {
-    const i = parseFloat(String(inv || '0').replace(/,/g, '')) || 0;
-    const p = parseFloat(String(paid || '0').replace(/,/g, '')) || 0;
-    return (i - p).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  function parseDateLoose(s) {
-    if (!s) return null;
-    const m = String(s).trim().match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/);
-    if (!m) return null;
-    let d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    return new Date(y, mo, d);
-  }
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-
-  function findRecord(wo) {
-    return records.find(r => r.wo === wo);
-  }
-
-  // ---------- Filtering ----------
-  function applyFilters() {
-    const clientQ = (document.getElementById('q-client').value || '').trim().toLowerCase();
-    const woQ = (document.getElementById('q-wo').value || '').trim();
-    const fromQ = parseDateLoose(document.getElementById('q-from').value);
-    const toQ = parseDateLoose(document.getElementById('q-to').value);
-    const statusQ = document.getElementById('q-status').value;
-
-    let list = records.slice();
-
+  // ---------- SR filters & render ----------
+  function filteredSr() {
+    let list = srRecords.slice();
+    const clientQ = (document.getElementById('sr-q-client').value || '').trim().toLowerCase();
+    const noQ = (document.getElementById('sr-q-no').value || '').trim();
+    const statusQ = document.getElementById('sr-q-status').value;
+    const convQ = document.getElementById('sr-q-converted').value;
     if (clientQ) list = list.filter(r => (r.client || '').toLowerCase().includes(clientQ));
-    if (woQ) {
-      list = list.filter(r =>
-        (r.wo || '').includes(woQ.replace(/^0+/, '')) ||
-        (r.wo || '') === woQ.padStart(4, '0')
-      );
-    }
-    if (statusQ) list = list.filter(r => r.status === statusQ);
-    if (fromQ || toQ) {
-      list = list.filter(r => {
-        const d = parseDateLoose(r.entry) || parseDateLoose(r.start) || parseDateLoose(r.end);
-        if (!d) return false;
-        if (fromQ && d < fromQ) return false;
-        if (toQ && d > toQ) return false;
-        return true;
-      });
-    }
-
-    const hasFilter = !!(clientQ || woQ || fromQ || toQ || statusQ);
-    filtered = (!hasFilter && !showAll) ? list.slice(-5) : list;
-
-    renderTable();
-    const total = records.length;
-    const shown = filtered.length;
-    const info = document.getElementById('view-info');
-    info.textContent = (!hasFilter && !showAll)
-      ? `Showing last ${shown} of ${total}`
-      : `Showing ${shown} of ${total}`;
+    if (noQ) list = list.filter(r => (r.sr || '').includes(noQ));
+    if (statusQ) list = list.filter(r => r.triage === statusQ);
+    if (convQ === 'yes') list = list.filter(r => !!r.convertedWo);
+    if (convQ === 'no') list = list.filter(r => !r.convertedWo);
+    list.sort((a, b) => parseInt(b.sr, 10) - parseInt(a.sr, 10));
+    return list;
   }
-
-  // ---------- Render ----------
-  function renderTable() {
-    const tbody = document.getElementById('wo-tbody');
-    const empty = document.getElementById('empty-state');
-    tbody.innerHTML = '';
-
-    if (filtered.length === 0) {
-      empty.style.display = 'block';
+  function renderSrTable() {
+    const list = filteredSr();
+    const tbody = document.getElementById('sr-tbody');
+    const empty = document.getElementById('sr-empty');
+    document.getElementById('sr-view-info').textContent = list.length + ' of ' + srRecords.length + ' request(s)';
+    if (list.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = srRecords.length === 0 ? 'block' : 'block';
+      empty.textContent = srRecords.length === 0
+        ? 'No sales requests yet. Click + ADD SR to create the first entry (SR#00071).'
+        : 'No requests match the current filters.';
       return;
     }
     empty.style.display = 'none';
+    tbody.innerHTML = list.map(rec => {
+      const conv = !!rec.convertedWo;
+      const statusClass = 'status-' + (rec.triage || '').replace(/\s/g, '\\ ');
+      return `<tr class="${conv ? 'converted-row' : ''}" data-sr="${esc(rec.sr)}">
+        <td><strong>SR#${esc(rec.sr)}</strong></td>
+        <td>${esc(rec.requestDate || '')}</td>
+        <td>${esc(rec.client || '')}</td>
+        <td>${esc(rec.site || '')}</td>
+        <td class="details-col">${esc(rec.details || '')}</td>
+        <td>${esc(rec.workType || '')}</td>
+        <td><span class="${statusClass}">${esc(rec.triage || '')}</span></td>
+        <td>
+          <div class="row-actions">
+            <button type="button" class="btn-expand" data-action="expand-sr" data-sr="${esc(rec.sr)}">Expand</button>
+            ${conv
+              ? `<span class="mark-converted" title="Converted to WO#${esc(rec.convertedWo)}">✓ Converted</span>`
+              : `<button type="button" class="btn-convert" data-action="convert-sr" data-sr="${esc(rec.sr)}"
+                   ${(rec.triage === 'Qualified' || rec.emergency) ? '' : 'disabled title="Qualify (or set Emergency) before convert"'}>
+                   Convert to WO
+                 </button>`}
+            <button type="button" class="icon-btn delete" data-action="delete-sr" data-sr="${esc(rec.sr)}" title="Delete">✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
 
-    const rows = filtered.slice().reverse();
-
-    rows.forEach(rec => {
-      const tr = document.createElement('tr');
-      tr.dataset.wo = rec.wo;
+  // ---------- WO filters & render ----------
+  function filteredWo() {
+    let list = woRecords.slice();
+    const clientQ = (document.getElementById('wo-q-client').value || '').trim().toLowerCase();
+    const noQ = (document.getElementById('wo-q-no').value || '').trim();
+    const statusQ = document.getElementById('wo-q-status').value;
+    if (clientQ) list = list.filter(r => (r.client || '').toLowerCase().includes(clientQ));
+    if (noQ) list = list.filter(r => (r.wo || '').includes(noQ));
+    if (statusQ) list = list.filter(r => r.status === statusQ);
+    // simple date filter left for later refinement
+    list.sort((a, b) => parseInt(b.wo, 10) - parseInt(a.wo, 10));
+    return list;
+  }
+  function renderWoTable() {
+    const list = filteredWo();
+    const tbody = document.getElementById('wo-tbody');
+    document.getElementById('wo-view-info').textContent = list.length + ' of ' + woRecords.length + ' work order(s)';
+    tbody.innerHTML = list.map(rec => {
       const statusClass = 'status-' + (rec.status || '').replace(/\s/g, '');
-      tr.innerHTML = `
-        <td><input class="cell-input wo-num" data-field="wo" value="${esc(rec.wo)}" readonly title="WO number is auto-managed" /></td>
+      return `<tr data-wo="${esc(rec.wo)}">
+        <td><strong>WO#${esc(rec.wo)}</strong>${rec.sr ? '<div style="font-size:0.65rem;color:#6b7280">from SR#' + esc(rec.sr) + '</div>' : ''}</td>
+        <td>${esc(rec.type || '')}</td>
+        <td>${esc(rec.entry || '')}</td>
+        <td>${esc(rec.start || '')}</td>
+        <td>${esc(rec.end || '')}</td>
+        <td><span class="${statusClass}">${esc(rec.status || '')}</span></td>
+        <td>${esc(rec.client || '')}</td>
+        <td>${esc(rec.location || '')}</td>
+        <td class="details-col">${esc(rec.details || '')}</td>
         <td>
-          <select class="cell-select" data-field="type">
-            ${TYPE_OPTS.map(o => `<option value="${esc(o)}" ${rec.type === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}
+          <div class="row-actions">
+            <button type="button" class="btn-expand" data-action="expand-wo" data-wo="${esc(rec.wo)}">Expand</button>
+            <button type="button" class="icon-btn delete" data-action="delete-wo" data-wo="${esc(rec.wo)}" title="Delete">✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ---------- Detail views ----------
+  function openSrDetail(srNo) {
+    const rec = srRecords.find(r => r.sr === srNo);
+    if (!rec) return;
+    detailCtx = { kind: 'sr', id: srNo };
+    document.getElementById('detail-title').textContent = 'Sales Request SR#' + srNo;
+    document.getElementById('detail-meta').textContent =
+      (rec.convertedWo ? 'Converted to WO#' + rec.convertedWo + ' · ' : '') +
+      (rec.triage || '') + ' · ' + (rec.client || '');
+    const body = document.getElementById('detail-body');
+    body.innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field"><label>SR Number</label><input type="text" id="d-sr" value="${esc(rec.sr)}" readonly /></div>
+        <div class="detail-field"><label>Request Date</label><input type="text" id="d-requestDate" value="${esc(rec.requestDate || '')}" placeholder="DD.MM.YYYY" /></div>
+        <div class="detail-field"><label>Client / Asset Owner</label><input type="text" id="d-client" value="${esc(rec.client || '')}" /></div>
+        <div class="detail-field"><label>Site / Station</label><input type="text" id="d-site" value="${esc(rec.site || '')}" /></div>
+        <div class="detail-field"><label>Site Contact Name</label><input type="text" id="d-contact" value="${esc(rec.contact || '')}" /></div>
+        <div class="detail-field"><label>Site Contact Phone</label><input type="text" id="d-phone" value="${esc(rec.phone || '')}" /></div>
+        <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
+        <div class="detail-field"><label>Equipment Category</label>
+          <select id="d-equipCat">
+            ${['','Fuel Dispenser','UST','AST','Piping','Generator','Air Compressor','Other'].map(o =>
+              `<option value="${o}" ${rec.equipCat === o ? 'selected' : ''}>${o || '— Select —'}</option>`).join('')}
           </select>
-        </td>
-        <td><input class="cell-input" data-field="entry" value="${esc(rec.entry)}" placeholder="DD.MM.YYYY" /></td>
-        <td><input class="cell-input" data-field="start" value="${esc(rec.start)}" placeholder="DD.MM.YYYY" /></td>
-        <td><input class="cell-input" data-field="end" value="${esc(rec.end)}" placeholder="DD.MM.YYYY" /></td>
-        <td>
-          <select class="cell-select status ${statusClass}" data-field="status">
-            <option value="">—</option>
-            ${STATUS_OPTS.map(o => `<option value="${o}" ${rec.status === o ? 'selected' : ''}>${o}</option>`).join('')}
+        </div>
+        <div class="detail-field full"><label>Equipment Description (all equipment-specific details)</label>
+          <textarea id="d-equipDesc" rows="2">${esc(rec.equipDesc || '')}</textarea></div>
+        <div class="detail-field"><label>Manufacturer / Model</label><input type="text" id="d-mfr" value="${esc(rec.mfr || '')}" /></div>
+        <div class="detail-field"><label>Serial Number</label><input type="text" id="d-serial" value="${esc(rec.serial || '')}" /></div>
+        <div class="detail-field"><label>Location on Site</label><input type="text" id="d-locOnSite" value="${esc(rec.locOnSite || '')}" /></div>
+        <div class="detail-field"><label>Work Type</label>
+          <select id="d-workType">
+            ${WORK_TYPES.map(o => `<option value="${o}" ${rec.workType === o ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
-        </td>
-        <td><input class="cell-input" data-field="client" value="${esc(rec.client)}" /></td>
-        <td><input class="cell-input" data-field="location" value="${esc(rec.location)}" /></td>
-        <td><input class="cell-input" data-field="title" value="${esc(rec.title)}" /></td>
-        <td><input class="cell-input" data-field="zoho" value="${esc(rec.zoho)}" /></td>
-        <td><input class="cell-input" data-field="etims" value="${esc(rec.etims)}" /></td>
-        <td><input class="cell-input amt" data-field="inv" value="${esc(rec.inv)}" /></td>
-        <td><input class="cell-input amt" data-field="paid" value="${esc(rec.paid)}" /></td>
-        <td><input class="cell-input amt" data-field="bal" value="${esc(rec.bal)}" readonly title="Auto-calculated" /></td>
-        <td class="row-actions">
-          <button class="icon-btn delete" data-action="delete" title="Delete (requires admin)">✕</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-
-    tbody.querySelectorAll('.cell-input, .cell-select').forEach(el => {
-      if (el.dataset.field === 'wo' || el.dataset.field === 'bal') return;
-      // store original value on focus
-      el.addEventListener('focus', function () {
-        this.dataset.orig = this.value;
-      });
-      el.addEventListener('change', onCellChange);
-    });
-    // live bal while typing amounts (display only; commit still needs auth on change)
-    tbody.querySelectorAll('[data-field="inv"], [data-field="paid"]').forEach(el => {
-      el.addEventListener('input', function () {
-        const tr = this.closest('tr');
-        const inv = tr.querySelector('[data-field="inv"]').value;
-        const paid = tr.querySelector('[data-field="paid"]').value;
-        const balInput = tr.querySelector('[data-field="bal"]');
-        if (balInput) balInput.value = calcBal(inv, paid);
-      });
-    });
-    tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
-      btn.addEventListener('click', onDeleteClick);
-    });
+        </div>
+        <div class="detail-field full"><label>Job Details / Reported Problem</label>
+          <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
+        <div class="detail-field"><label>Channel Received</label>
+          <select id="d-channel">
+            ${['Phone','WhatsApp','Email','Walk-in','Portal','Other'].map(o =>
+              `<option value="${o}" ${rec.channel === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="detail-field"><label>Triage Status</label>
+          <select id="d-triage">
+            ${SR_STATUS.map(o => `<option value="${o}" ${rec.triage === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="detail-field"><label>Quotation Required?</label>
+          <select id="d-quoteReq">
+            <option value="No" ${rec.quoteReq === 'No' ? 'selected' : ''}>No</option>
+            <option value="Yes" ${rec.quoteReq === 'Yes' ? 'selected' : ''}>Yes</option>
+          </select>
+        </div>
+        <div class="detail-field"><label>Quotation Accepted?</label>
+          <select id="d-quoteAcc">
+            <option value="Pending" ${rec.quoteAcc === 'Pending' ? 'selected' : ''}>Pending</option>
+            <option value="Yes" ${rec.quoteAcc === 'Yes' ? 'selected' : ''}>Yes</option>
+            <option value="No" ${rec.quoteAcc === 'No' ? 'selected' : ''}>No</option>
+          </select>
+        </div>
+        <div class="detail-field"><label>Emergency / Direct-to-WO</label>
+          <select id="d-emergency">
+            <option value="No" ${!rec.emergency ? 'selected' : ''}>No</option>
+            <option value="Yes" ${rec.emergency ? 'selected' : ''}>Yes</option>
+          </select>
+        </div>
+        <div class="detail-field"><label>Converted to WO</label>
+          <input type="text" value="${esc(rec.convertedWo ? 'WO#' + rec.convertedWo : '—')}" readonly /></div>
+      </div>
+      <div class="detail-actions">
+        <button type="button" class="btn btn-primary" id="detail-btn-save-sr">Save Changes</button>
+        ${!rec.convertedWo && (rec.triage === 'Qualified' || rec.emergency)
+          ? '<button type="button" class="btn btn-accent" id="detail-btn-convert">Convert to Work Order</button>'
+          : ''}
+      </div>`;
+    document.getElementById('detail-overlay').classList.add('open');
+    const saveBtn = document.getElementById('detail-btn-save-sr');
+    if (saveBtn) saveBtn.onclick = () => saveSrDetail(srNo);
+    const convBtn = document.getElementById('detail-btn-convert');
+    if (convBtn) convBtn.onclick = () => convertSr(srNo);
   }
 
-  // ---------- Cell change (requires auth) ----------
-  async function onCellChange(e) {
-    const el = e.target;
-    const tr = el.closest('tr');
-    const wo = tr.dataset.wo;
-    const field = el.dataset.field;
-    const rec = findRecord(wo);
-    if (!rec || field === 'wo' || field === 'bal') return;
-
-    const newVal = el.value;
-    const oldVal = el.dataset.orig !== undefined ? el.dataset.orig : (rec[field] || '');
-
-    // no real change
-    if (String(newVal) === String(oldVal)) return;
-
-    // revert UI immediately until authorised
-    el.value = oldVal;
-    if (field === 'status') {
-      el.className = 'cell-select status status-' + (oldVal || '').replace(/\s/g, '');
-    }
-
-    try {
-      const admin = await requestAuth(
-        'edit WO ' + wo + ' (' + field + ')',
-        { type: 'EDIT', wo, field, newVal, oldVal }
-      );
-
-      rec[field] = newVal;
-      el.value = newVal;
-      el.dataset.orig = newVal;
-
-      if (field === 'status') {
-        el.className = 'cell-select status status-' + (newVal || '').replace(/\s/g, '');
-      }
-      if (field === 'inv' || field === 'paid') {
-        rec.bal = calcBal(rec.inv, rec.paid);
-        const balInput = tr.querySelector('[data-field="bal"]');
-        if (balInput) balInput.value = rec.bal;
-      }
-
-      logChange('EDIT', admin.name, wo, field + ': "' + oldVal + '" → "' + newVal + '"');
-      scheduleSave();
-      toast('Edit authorised by ' + admin.name);
-    } catch (_) {
-      // cancelled — already reverted
-      toast('Edit cancelled');
-    }
+  function saveSrDetail(srNo) {
+    requestAuth('edit Sales Request SR#' + srNo).then(admin => {
+      const rec = srRecords.find(r => r.sr === srNo);
+      if (!rec) return;
+      rec.requestDate = document.getElementById('d-requestDate').value;
+      rec.client = document.getElementById('d-client').value;
+      rec.site = document.getElementById('d-site').value;
+      rec.contact = document.getElementById('d-contact').value;
+      rec.phone = document.getElementById('d-phone').value;
+      rec.equipId = document.getElementById('d-equipId').value;
+      rec.equipCat = document.getElementById('d-equipCat').value;
+      rec.equipDesc = document.getElementById('d-equipDesc').value;
+      rec.mfr = document.getElementById('d-mfr').value;
+      rec.serial = document.getElementById('d-serial').value;
+      rec.locOnSite = document.getElementById('d-locOnSite').value;
+      rec.workType = document.getElementById('d-workType').value;
+      rec.details = document.getElementById('d-details').value;
+      rec.channel = document.getElementById('d-channel').value;
+      rec.triage = document.getElementById('d-triage').value;
+      rec.quoteReq = document.getElementById('d-quoteReq').value;
+      rec.quoteAcc = document.getElementById('d-quoteAcc').value;
+      rec.emergency = document.getElementById('d-emergency').value === 'Yes';
+      saveSr();
+      logChange('EDIT SR', admin.name, 'SR#' + srNo, rec.client);
+      toast('Sales Request saved', 'success');
+      renderSrTable();
+      openSrDetail(srNo);
+    }).catch(() => {});
   }
 
-  // ---------- Delete ----------
-  function onDeleteClick(e) {
-    const tr = e.target.closest('tr');
-    deleteTarget = tr.dataset.wo;
-    document.getElementById('modal-title').textContent = 'Delete Work Order?';
-    document.getElementById('modal-msg').textContent =
-      'Remove WO ' + deleteTarget + ' permanently? Admin authorisation will be required.';
-    document.getElementById('confirm-modal').classList.add('open');
+  function openWoDetail(woNo) {
+    const rec = woRecords.find(r => r.wo === woNo);
+    if (!rec) return;
+    detailCtx = { kind: 'wo', id: woNo };
+    document.getElementById('detail-title').textContent = 'Work Order WO#' + woNo;
+    document.getElementById('detail-meta').textContent =
+      (rec.sr ? 'from SR#' + rec.sr + ' · ' : '') + (rec.status || '') + ' · ' + (rec.client || '');
+    const body = document.getElementById('detail-body');
+    body.innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field"><label>WO Number</label><input type="text" value="WO#${esc(rec.wo)}" readonly /></div>
+        <div class="detail-field"><label>Linked SR</label><input type="text" value="${esc(rec.sr ? 'SR#' + rec.sr : '—')}" readonly /></div>
+        <div class="detail-field"><label>Type</label>
+          <select id="d-type">
+            ${TYPE_OPTS.map(o => `<option value="${o}" ${rec.type === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}
+          </select>
+        </div>
+        <div class="detail-field"><label>Status</label>
+          <select id="d-status">
+            ${WO_STATUS.map(o => `<option value="${o}" ${rec.status === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="detail-field"><label>Entry Date</label><input type="text" id="d-entry" value="${esc(rec.entry || '')}" placeholder="DD.MM.YYYY" /></div>
+        <div class="detail-field"><label>Start Date</label><input type="text" id="d-start" value="${esc(rec.start || '')}" placeholder="DD.MM.YYYY" /></div>
+        <div class="detail-field"><label>End Date</label><input type="text" id="d-end" value="${esc(rec.end || '')}" placeholder="DD.MM.YYYY" /></div>
+        <div class="detail-field"><label>Client</label><input type="text" id="d-client" value="${esc(rec.client || '')}" /></div>
+        <div class="detail-field"><label>Location</label><input type="text" id="d-location" value="${esc(rec.location || '')}" /></div>
+        <div class="detail-field full"><label>Job Details</label>
+          <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
+        <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
+        <div class="detail-field"><label>Equipment Category</label><input type="text" id="d-equipCat" value="${esc(rec.equipCat || '')}" /></div>
+        <div class="detail-field full"><label>Equipment Description</label>
+          <textarea id="d-equipDesc" rows="2">${esc(rec.equipDesc || '')}</textarea></div>
+        <div class="detail-field"><label>Work Type</label><input type="text" id="d-workType" value="${esc(rec.workType || '')}" /></div>
+        <div class="detail-field"><label>Site Contact</label><input type="text" id="d-contact" value="${esc(rec.contact || '')}" /></div>
+      </div>
+      <div class="ai-box">
+        <h4>AI-assisted Work Order document</h4>
+        <p>AI will read the register data above, categorise by Type of Work, and complete the full Work Order document from the pre-built template. Templates will be embedded in a later stage; this button prepares the framework.</p>
+        <button type="button" class="btn btn-accent" id="detail-btn-ai" ${rec.aiDone ? 'disabled' : ''}>
+          ${rec.aiDone ? '✓ WO document created with AI' : 'Create WO with AI'}
+        </button>
+        <button type="button" class="btn btn-success" id="detail-btn-wopdf" style="margin-left:8px;${rec.aiDone ? '' : 'display:none'}">
+          Convert to PDF
+        </button>
+      </div>
+      <div class="detail-actions">
+        <button type="button" class="btn btn-primary" id="detail-btn-save-wo">Save Changes</button>
+      </div>`;
+    document.getElementById('detail-overlay').classList.add('open');
+    document.getElementById('detail-btn-save-wo').onclick = () => saveWoDetail(woNo);
+    const aiBtn = document.getElementById('detail-btn-ai');
+    if (aiBtn && !rec.aiDone) aiBtn.onclick = () => runAiCreateWo(woNo);
+    const pdfBtn = document.getElementById('detail-btn-wopdf');
+    if (pdfBtn) pdfBtn.onclick = () => exportSingleWoPdf(woNo);
   }
 
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    const wo = deleteTarget;
-    document.getElementById('confirm-modal').classList.remove('open');
+  function saveWoDetail(woNo) {
+    requestAuth('edit Work Order WO#' + woNo).then(admin => {
+      const rec = woRecords.find(r => r.wo === woNo);
+      if (!rec) return;
+      rec.type = document.getElementById('d-type').value;
+      rec.status = document.getElementById('d-status').value;
+      rec.entry = document.getElementById('d-entry').value;
+      rec.start = document.getElementById('d-start').value;
+      rec.end = document.getElementById('d-end').value;
+      rec.client = document.getElementById('d-client').value;
+      rec.location = document.getElementById('d-location').value;
+      rec.details = document.getElementById('d-details').value;
+      rec.equipId = document.getElementById('d-equipId').value;
+      rec.equipCat = document.getElementById('d-equipCat').value;
+      rec.equipDesc = document.getElementById('d-equipDesc').value;
+      rec.workType = document.getElementById('d-workType').value;
+      rec.contact = document.getElementById('d-contact').value;
+      saveWo();
+      logChange('EDIT WO', admin.name, 'WO#' + woNo, rec.client);
+      toast('Work Order saved', 'success');
+      renderWoTable();
+      openWoDetail(woNo);
+    }).catch(() => {});
+  }
 
-    try {
-      const admin = await requestAuth('delete WO ' + wo, { type: 'DELETE', wo });
-      const rec = findRecord(wo);
-      const snapshot = rec ? (rec.client || '') + ' / ' + (rec.title || '') : '';
-      records = records.filter(r => r.wo !== wo);
-      logChange('DELETE', admin.name, wo, snapshot);
-      deleteTarget = null;
-      applyFilters();
-      save(true);
-      toast('Deleted WO ' + wo + ' (authorised by ' + admin.name + ')');
-    } catch (_) {
-      deleteTarget = null;
-      toast('Delete cancelled');
+  function runAiCreateWo(woNo) {
+    const rec = woRecords.find(r => r.wo === woNo);
+    if (!rec) return;
+    // Framework placeholder — full AI template fill comes later
+    toast('AI framework: categorising work type and preparing WO document…', 'success');
+    setTimeout(() => {
+      rec.aiDone = true;
+      saveWo();
+      toast('WO document draft created. Review and use Convert to PDF when ready.', 'success');
+      openWoDetail(woNo);
+    }, 900);
+  }
+
+  // ---------- Convert SR → WO ----------
+  function convertSr(srNo) {
+    const rec = srRecords.find(r => r.sr === srNo);
+    if (!rec) return;
+    if (rec.convertedWo) {
+      toast('Already converted to WO#' + rec.convertedWo, 'error');
+      return;
     }
+    if (rec.triage !== 'Qualified' && !rec.emergency) {
+      toast('SR must be Qualified (or Emergency) before conversion', 'error');
+      return;
+    }
+    requestAuth('convert SR#' + srNo + ' to Work Order').then(admin => {
+      const woNo = nextWoNo();
+      const newWo = {
+        wo: woNo,
+        type: rec.workType && rec.workType.includes('Emergency') ? 'Emergency Repair' :
+              (rec.workType && rec.workType.includes('Preventive') ? 'Preventive Maintenance' : 'Parts + Labour'),
+        entry: todayDisp(),
+        start: '',
+        end: '',
+        status: 'Pending',
+        client: rec.client || '',
+        location: rec.site || '',
+        details: rec.details || '',
+        sr: rec.sr,
+        equipId: rec.equipId || '',
+        equipCat: rec.equipCat || '',
+        equipDesc: rec.equipDesc || '',
+        mfr: rec.mfr || '',
+        serial: rec.serial || '',
+        locOnSite: rec.locOnSite || '',
+        workType: rec.workType || '',
+        contact: rec.contact || '',
+        phone: rec.phone || '',
+        aiDone: false
+      };
+      woRecords.push(newWo);
+      rec.convertedWo = woNo;
+      rec.convertedAt = new Date().toISOString();
+      saveSr();
+      saveWo();
+      logChange('CONVERT SR→WO', admin.name, 'SR#' + srNo + ' → WO#' + woNo, rec.client);
+      toast('Created WO#' + woNo + ' from SR#' + srNo, 'success');
+      // Switch to WO section and open detail
+      showSection('wo');
+      closeDetail();
+      openWoDetail(woNo);
+    }).catch(() => {});
   }
 
   // ---------- ADD ----------
-  async function addRow() {
-    try {
-      const admin = await requestAuth('add a new work order', { type: 'ADD' });
-      const newWo = nextWoNumber();
-      const today = new Date();
-      const entry = [
-        String(today.getDate()).padStart(2, '0'),
-        String(today.getMonth() + 1).padStart(2, '0'),
-        today.getFullYear()
-      ].join('.');
-
-      const rec = {
-        wo: newWo,
+  function addSr() {
+    requestAuth('add new Sales Request').then(admin => {
+      const no = nextSrNo();
+      srRecords.push({
+        sr: no,
+        requestDate: todayDisp(),
+        client: '',
+        site: '',
+        contact: '',
+        phone: '',
+        equipId: '',
+        equipCat: '',
+        equipDesc: '',
+        mfr: '',
+        serial: '',
+        locOnSite: '',
+        workType: WORK_TYPES[0],
+        details: '',
+        channel: 'Phone',
+        triage: 'Received',
+        quoteReq: 'No',
+        quoteAcc: 'Pending',
+        emergency: false,
+        convertedWo: '',
+        registeredBy: admin.name
+      });
+      saveSr();
+      logChange('ADD SR', admin.name, 'SR#' + no, '');
+      toast('Created SR#' + no, 'success');
+      renderSrTable();
+      openSrDetail(no);
+    }).catch(() => {});
+  }
+  function addWo() {
+    requestAuth('add new Work Order').then(admin => {
+      const no = nextWoNo();
+      woRecords.push({
+        wo: no,
         type: '',
-        entry: entry,
+        entry: todayDisp(),
         start: '',
         end: '',
         status: 'Pending',
         client: '',
         location: '',
-        title: '',
-        zoho: '',
-        etims: '',
-        inv: '',
-        paid: '',
-        bal: '0.00'
-      };
-      records.push(rec);
-      logChange('ADD', admin.name, newWo, 'New work order created');
-      showAll = true;
-      document.getElementById('q-client').value = '';
-      document.getElementById('q-wo').value = newWo;
-      document.getElementById('q-from').value = '';
-      document.getElementById('q-to').value = '';
-      document.getElementById('q-status').value = '';
-      applyFilters();
-      save(true);
-      toast('WO ' + newWo + ' added (authorised by ' + admin.name + ')');
-      setTimeout(() => {
-        const tr = document.querySelector('tr[data-wo="' + newWo + '"]');
-        if (tr) {
-          const clientInput = tr.querySelector('[data-field="client"]');
-          if (clientInput) clientInput.focus();
-        }
-      }, 50);
-    } catch (_) {
-      toast('Add cancelled');
-    }
-  }
-
-  // ---------- Audit UI ----------
-  function showAudit() {
-    const box = document.getElementById('audit-list');
-    if (auditLog.length === 0) {
-      box.innerHTML = '<p style="color:#64748b;padding:12px">No changes recorded yet.</p>';
-    } else {
-      let html = '<table><thead><tr><th>When</th><th>Action</th><th>WO</th><th>Admin</th><th>Detail</th></tr></thead><tbody>';
-      auditLog.forEach(e => {
-        html += '<tr>' +
-          '<td>' + esc(formatTs(e.at)) + '</td>' +
-          '<td><strong>' + esc(e.action) + '</strong></td>' +
-          '<td>' + esc(e.wo) + '</td>' +
-          '<td>' + esc(e.admin) + '</td>' +
-          '<td>' + esc(e.detail) + '</td>' +
-          '</tr>';
+        details: '',
+        sr: '',
+        aiDone: false
       });
-      html += '</tbody></table>';
-      box.innerHTML = html;
-    }
-    document.getElementById('audit-modal').classList.add('open');
+      saveWo();
+      logChange('ADD WO', admin.name, 'WO#' + no, '');
+      toast('Created WO#' + no, 'success');
+      renderWoTable();
+      openWoDetail(no);
+    }).catch(() => {});
   }
 
-  // ---------- PDF Export (no auth required — read only) ----------
-  async function exportPdf() {
+  // ---------- Delete ----------
+  function askDelete(kind, id) {
+    deleteTarget = { kind, id };
+    document.getElementById('delete-title').textContent =
+      kind === 'sr' ? 'Delete Sales Request SR#' + id + '?' : 'Delete Work Order WO#' + id + '?';
+    document.getElementById('delete-modal').classList.add('open');
+  }
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    const { kind, id } = deleteTarget;
+    document.getElementById('delete-modal').classList.remove('open');
+    requestAuth('delete ' + (kind === 'sr' ? 'SR#' : 'WO#') + id).then(admin => {
+      if (kind === 'sr') {
+        srRecords = srRecords.filter(r => r.sr !== id);
+        saveSr();
+        logChange('DELETE SR', admin.name, 'SR#' + id, '');
+        renderSrTable();
+      } else {
+        woRecords = woRecords.filter(r => r.wo !== id);
+        saveWo();
+        logChange('DELETE WO', admin.name, 'WO#' + id, '');
+        renderWoTable();
+      }
+      closeDetail();
+      toast('Deleted', 'success');
+      deleteTarget = null;
+    }).catch(() => { deleteTarget = null; });
+  }
+
+  function closeDetail() {
+    document.getElementById('detail-overlay').classList.remove('open');
+    detailCtx = null;
+  }
+
+  // ---------- PDF (register overview) ----------
+  async function exportRegisterPdf(kind) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
-    const OUTER = 5;
-    const MARGIN = 8;
-    const NAVY = [13, 38, 77];
-    const GREY = [100, 116, 139];
-    const GREEN = [22, 101, 52];
-    const ORANGE = [194, 65, 12];
-    const SOFT = [241, 245, 249];
-    const RED = [127, 29, 29];
+    const M = 10;
+    const navy = [13, 38, 77];
+    let y = M;
 
-    doc.setDrawColor(...NAVY);
-    doc.setLineWidth(0.55);
-    doc.rect(OUTER, OUTER, pageW - 2 * OUTER, pageH - 2 * OUTER);
-    doc.setLineWidth(0.22);
-    doc.rect(OUTER + 1.1, OUTER + 1.1, pageW - 2 * (OUTER + 1.1), pageH - 2 * (OUTER + 1.1));
+    doc.setDrawColor(...navy);
+    doc.setLineWidth(0.6);
+    doc.rect(6, 6, pageW - 12, pageH - 12);
+    doc.setLineWidth(0.2);
+    doc.rect(7.2, 7.2, pageW - 14.4, pageH - 14.4);
 
-    let y = OUTER + 5;
-    // Controlled document stamp
-    doc.setFillColor(...RED);
-    doc.rect(MARGIN, y - 2, 48, 4.5, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(254, 202, 202);
-    doc.text('CONTROLLED DOCUMENT', MARGIN + 1.5, y + 1.2);
-
-    y = OUTER + 8;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...NAVY);
-    doc.text('FORECOURT WORKS LIMITED', MARGIN, y);
+    doc.setFontSize(12);
+    doc.setTextColor(...navy);
+    doc.text('FORECOURT WORKS LIMITED', M, y + 4);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(...GREY);
-    doc.text('Engineering Reliability Into Every Forecourt', MARGIN, y + 3.2);
-    doc.text('Ramco Court, GT 3B, South C, Nairobi  |  +254 729-002-087  |  sales@forecourtworks.co.ke', MARGIN, y + 6);
-
-    try {
-      const logoImg = await loadImageAsDataUrl('forecourt-logo-mark.png');
-      if (logoImg) doc.addImage(logoImg, 'PNG', pageW - MARGIN - 38, OUTER + 3, 36, 6.5);
-    } catch (_) {}
-
-    y = OUTER + 16;
-    doc.setDrawColor(13, 71, 140);
-    doc.setLineWidth(0.35);
-    doc.line(MARGIN, y, pageW - MARGIN, y);
-
-    y += 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(...NAVY);
-    doc.text('WORK ORDER REGISTER', pageW / 2, y, { align: 'center' });
-    y += 3.5;
-    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(60);
+    doc.text(kind === 'sr' ? 'SALES REQUEST REGISTER' : 'WORK ORDER REGISTER', M, y + 9);
     doc.setFontSize(7);
-    doc.setTextColor(...GREY);
-    doc.text('Exported ' + new Date().toLocaleDateString('en-GB') + '  •  ' + filtered.length + ' record(s)  •  Controlled Document', pageW / 2, y, { align: 'center' });
+    doc.text('CONTROLLED DOCUMENT  ·  ' + new Date().toLocaleString('en-GB'), M, y + 13);
+    y += 18;
 
-    const cols = [
-      { key: 'wo', label: 'WO', w: 12 },
-      { key: 'type', label: 'TYPE', w: 22 },
-      { key: 'entry', label: 'ENTRY', w: 18 },
-      { key: 'start', label: 'START', w: 18 },
-      { key: 'end', label: 'END', w: 18 },
-      { key: 'status', label: 'STATUS', w: 20 },
-      { key: 'client', label: 'CLIENT', w: 26 },
-      { key: 'location', label: 'LOCATION', w: 22 },
-      { key: 'title', label: 'JOB TITLE', w: 48 },
-      { key: 'zoho', label: 'ZOHO', w: 14 },
-      { key: 'etims', label: 'eTIMS', w: 16 },
-      { key: 'inv', label: 'INV AMT', w: 18 },
-      { key: 'paid', label: 'PAID', w: 16 },
-      { key: 'bal', label: 'BAL', w: 16 }
-    ];
-    const totalW = cols.reduce((s, c) => s + c.w, 0);
-    const scale = (pageW - 2 * MARGIN) / totalW;
-    cols.forEach(c => { c.w = c.w * scale; });
-
-    y += 5;
-    const headerH = 6.5;
-    const rowH = 5.8;
-    const usableBottom = pageH - OUTER - 6;
-
-    function drawFrame() {
-      doc.setDrawColor(...NAVY);
-      doc.setLineWidth(0.55);
-      doc.rect(OUTER, OUTER, pageW - 2 * OUTER, pageH - 2 * OUTER);
-      doc.setLineWidth(0.22);
-      doc.rect(OUTER + 1.1, OUTER + 1.1, pageW - 2 * (OUTER + 1.1), pageH - 2 * (OUTER + 1.1));
+    const rows = kind === 'sr' ? filteredSr() : filteredWo();
+    if (kind === 'sr') {
+      const cols = [
+        { k: 'sr', l: 'SR No', w: 18 },
+        { k: 'requestDate', l: 'Date', w: 22 },
+        { k: 'client', l: 'Client', w: 40 },
+        { k: 'site', l: 'Site', w: 32 },
+        { k: 'details', l: 'Job Details', w: 70 },
+        { k: 'workType', l: 'Work Type', w: 40 },
+        { k: 'triage', l: 'Triage', w: 28 },
+        { k: 'convertedWo', l: 'WO', w: 18 }
+      ];
+      drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
+        'SR#' + (r.sr || ''), r.requestDate || '', r.client || '', r.site || '',
+        r.details || '', r.workType || '', r.triage || '',
+        r.convertedWo ? 'WO#' + r.convertedWo : '—'
+      ]);
+    } else {
+      const cols = [
+        { k: 'wo', l: 'WO No', w: 18 },
+        { k: 'type', l: 'Type', w: 28 },
+        { k: 'entry', l: 'Entry', w: 20 },
+        { k: 'status', l: 'Status', w: 22 },
+        { k: 'client', l: 'Client', w: 36 },
+        { k: 'location', l: 'Location', w: 30 },
+        { k: 'details', l: 'Job Details', w: 70 },
+        { k: 'sr', l: 'From SR', w: 18 }
+      ];
+      drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
+        'WO#' + (r.wo || ''), r.type || '', r.entry || '', r.status || '',
+        r.client || '', r.location || '', r.details || '',
+        r.sr ? 'SR#' + r.sr : '—'
+      ]);
     }
+    const fname = (kind === 'sr' ? 'SR-Register' : 'WO-Register') + '-' +
+      new Date().toISOString().slice(0, 10) + '.pdf';
+    doc.save(fname);
+    toast('PDF exported: ' + fname, 'success');
+  }
 
-    function drawHeader() {
-      doc.setFillColor(...NAVY);
-      doc.rect(MARGIN, y, pageW - 2 * MARGIN, headerH, 'F');
+  function drawPdfTable(doc, cols, rows, startY, M, pageW, pageH, navy, mapRow) {
+    let y = startY;
+    const rowH = 6;
+    function header() {
+      doc.setFillColor(...navy);
+      doc.rect(M, y, pageW - 2 * M, 6, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(5.5);
-      doc.setTextColor(255, 255, 255);
-      let x = MARGIN + 1;
-      cols.forEach(c => {
-        doc.text(c.label, x, y + 4.2);
-        x += c.w;
-      });
-      y += headerH;
+      doc.setFontSize(7);
+      doc.setTextColor(255);
+      let x = M + 1;
+      cols.forEach(c => { doc.text(c.l, x, y + 4); x += c.w; });
+      y += 7;
+      doc.setTextColor(30);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
     }
-
-    const exportRows = filtered.slice().sort((a, b) => parseInt(a.wo, 10) - parseInt(b.wo, 10));
-    drawHeader();
-
-    exportRows.forEach((rec, i) => {
-      if (y + rowH > usableBottom) {
+    header();
+    rows.forEach((r, i) => {
+      if (y > pageH - 14) {
         doc.addPage();
-        drawFrame();
-        y = OUTER + 6;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(...NAVY);
-        doc.text('WORK ORDER REGISTER (cont.) — CONTROLLED DOCUMENT', pageW / 2, y, { align: 'center' });
-        y += 5;
-        drawHeader();
+        doc.setDrawColor(...navy);
+        doc.setLineWidth(0.6);
+        doc.rect(6, 6, pageW - 12, pageH - 12);
+        y = M + 4;
+        header();
       }
       if (i % 2 === 0) {
-        doc.setFillColor(...SOFT);
-        doc.rect(MARGIN, y, pageW - 2 * MARGIN, rowH, 'F');
+        doc.setFillColor(248, 250, 252);
+        doc.rect(M, y - 1, pageW - 2 * M, rowH, 'F');
       }
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.2);
-      let x = MARGIN + 1;
-      cols.forEach(c => {
-        let val = String(rec[c.key] || '');
-        const maxC = Math.max(3, Math.floor(c.w / 1.7));
-        if (val.length > maxC) val = val.slice(0, maxC - 1) + '…';
-        if (c.key === 'status') {
-          if (val === 'Completed') doc.setTextColor(...GREEN);
-          else if (val === 'Ongoing') doc.setTextColor(...ORANGE);
-          else doc.setTextColor(...GREY);
-          doc.setFont('helvetica', 'bold');
-        } else {
-          doc.setTextColor(30, 41, 59);
-          doc.setFont('helvetica', 'normal');
-        }
-        doc.text(val, x, y + 3.9);
-        x += c.w;
+      const vals = mapRow(r);
+      let x = M + 1;
+      vals.forEach((v, j) => {
+        const t = String(v || '').substring(0, Math.floor(cols[j].w / 1.6));
+        doc.text(t, x, y + 3.5);
+        x += cols[j].w;
       });
       y += rowH;
     });
+  }
 
+  function exportSingleEntryPdf() {
+    if (!detailCtx) return;
+    if (detailCtx.kind === 'sr') {
+      // simple single-entry export via register style filtered conceptually
+      toast('Single-entry PDF: use register Export for now; dedicated single layout in next iteration', 'success');
+    } else {
+      exportSingleWoPdf(detailCtx.id);
+    }
+  }
+  function exportSingleWoPdf(woNo) {
+    const rec = woRecords.find(r => r.wo === woNo);
+    if (!rec) return;
+    if (!rec.aiDone) {
+      toast('Create WO with AI first, then Convert to PDF', 'error');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const M = 14;
+    const navy = [13, 71, 140];
+    doc.setDrawColor(...navy);
+    doc.setLineWidth(0.6);
+    doc.rect(8, 8, pageW - 16, doc.internal.pageSize.getHeight() - 16);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(...navy);
+    doc.text('FORECOURT WORKS LIMITED', M, 20);
+    doc.setFontSize(11);
+    doc.text('WORK ORDER  WO#' + rec.wo, M, 28);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(...GREY);
-    doc.text('Forecourt Works Ltd  •  Work Order Register  •  CONTROLLED DOCUMENT  •  Landscape A4', pageW / 2, pageH - OUTER - 2.5, { align: 'center' });
-
-    const fname = 'WO-Register_' + new Date().toISOString().slice(0, 10) + '.pdf';
-    doc.save(fname);
-    toast('PDF exported: ' + fname);
-  }
-
-  function loadImageAsDataUrl(src) {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          resolve(canvas.toDataURL('image/png'));
-        } catch (_) { resolve(null); }
-      };
-      img.onerror = () => resolve(null);
-      img.src = src;
+    doc.setFontSize(9);
+    doc.setTextColor(40);
+    let y = 38;
+    const lines = [
+      ['Client', rec.client],
+      ['Location', rec.location],
+      ['Status', rec.status],
+      ['Type', rec.type],
+      ['Work Type', rec.workType],
+      ['Job Details', rec.details],
+      ['Equipment ID', rec.equipId],
+      ['Equipment Category', rec.equipCat],
+      ['Equipment Description', rec.equipDesc],
+      ['From SR', rec.sr ? 'SR#' + rec.sr : '—'],
+      ['Entry', rec.entry],
+      ['Start', rec.start],
+      ['End', rec.end]
+    ];
+    lines.forEach(([lab, val]) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...navy);
+      doc.text(lab.toUpperCase(), M, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(30);
+      doc.setFontSize(9);
+      const split = doc.splitTextToSize(String(val || '—'), pageW - 2 * M);
+      doc.text(split, M, y + 4);
+      y += 4 + split.length * 4.5 + 3;
     });
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text('AI-assisted draft · Review before issue · CONTROLLED DOCUMENT', M, y + 6);
+    doc.save('WO#' + rec.wo + '-document.pdf');
+    toast('WO document PDF saved', 'success');
   }
 
-  function toast(msg) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 2400);
-  }
-
-  // ---------- Events ----------
-  document.getElementById('btn-add').addEventListener('click', addRow);
-  document.getElementById('btn-query').addEventListener('click', () => {
-    showAll = true;
-    applyFilters();
-    toast('Query applied');
-  });
-  document.getElementById('btn-clear').addEventListener('click', () => {
-    document.getElementById('q-client').value = '';
-    document.getElementById('q-wo').value = '';
-    document.getElementById('q-from').value = '';
-    document.getElementById('q-to').value = '';
-    document.getElementById('q-status').value = '';
-    showAll = false;
-    applyFilters();
-    toast('Reset to last 5');
-  });
-  document.getElementById('btn-export').addEventListener('click', () => {
-    if (filtered.length === 0) { toast('Nothing to export'); return; }
-    exportPdf();
-  });
-  document.getElementById('btn-save').addEventListener('click', () => save(false));
-  document.getElementById('btn-audit').addEventListener('click', showAudit);
-
-  ['q-client', 'q-wo', 'q-from', 'q-to', 'q-status'].forEach(id => {
-    document.getElementById(id).addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
-        showAll = true;
-        applyFilters();
+  // ---------- events ----------
+  function init() {
+    loadAll();
+    // tabs
+    document.querySelectorAll('.section-tab').forEach(t => {
+      t.addEventListener('click', () => showSection(t.dataset.section));
+    });
+    // SR toolbar
+    ['sr-q-client', 'sr-q-no', 'sr-q-status', 'sr-q-converted'].forEach(id => {
+      document.getElementById(id).addEventListener('input', renderSrTable);
+      document.getElementById(id).addEventListener('change', renderSrTable);
+    });
+    document.getElementById('sr-btn-reset').onclick = () => {
+      ['sr-q-client', 'sr-q-no'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('sr-q-status').value = '';
+      document.getElementById('sr-q-converted').value = '';
+      renderSrTable();
+    };
+    document.getElementById('sr-btn-add').onclick = addSr;
+    document.getElementById('sr-btn-export').onclick = () => exportRegisterPdf('sr');
+    // WO toolbar
+    ['wo-q-client', 'wo-q-no', 'wo-q-status', 'wo-q-from', 'wo-q-to'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', renderWoTable);
+        el.addEventListener('change', renderWoTable);
       }
     });
-  });
+    document.getElementById('wo-btn-reset').onclick = () => {
+      ['wo-q-client', 'wo-q-no', 'wo-q-from', 'wo-q-to'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('wo-q-status').value = '';
+      renderWoTable();
+    };
+    document.getElementById('wo-btn-add').onclick = addWo;
+    document.getElementById('wo-btn-export').onclick = () => exportRegisterPdf('wo');
 
-  document.getElementById('modal-cancel').addEventListener('click', () => {
-    document.getElementById('confirm-modal').classList.remove('open');
-    deleteTarget = null;
-  });
-  document.getElementById('modal-ok').addEventListener('click', confirmDelete);
+    // delegated row actions
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (action === 'expand-sr') openSrDetail(btn.dataset.sr);
+      if (action === 'expand-wo') openWoDetail(btn.dataset.wo);
+      if (action === 'convert-sr') convertSr(btn.dataset.sr);
+      if (action === 'delete-sr') askDelete('sr', btn.dataset.sr);
+      if (action === 'delete-wo') askDelete('wo', btn.dataset.wo);
+    });
 
-  document.getElementById('auth-cancel').addEventListener('click', () => closeAuth(false));
-  document.getElementById('auth-ok').addEventListener('click', onAuthOk);
-  document.getElementById('auth-pass').addEventListener('keydown', e => {
-    if (e.key === 'Enter') onAuthOk();
-  });
-  document.getElementById('auth-name').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('auth-pass').focus();
-  });
-  document.getElementById('audit-close').addEventListener('click', () => {
-    document.getElementById('audit-modal').classList.remove('open');
-  });
+    document.getElementById('detail-btn-home').onclick = closeDetail;
+    document.getElementById('detail-btn-pdf').onclick = exportSingleEntryPdf;
+    document.getElementById('auth-confirm').onclick = onAuthConfirm;
+    document.getElementById('auth-cancel').onclick = onAuthCancel;
+    document.getElementById('auth-pass').addEventListener('keydown', e => {
+      if (e.key === 'Enter') onAuthConfirm();
+    });
+    document.getElementById('delete-cancel').onclick = () => {
+      document.getElementById('delete-modal').classList.remove('open');
+      deleteTarget = null;
+    };
+    document.getElementById('delete-confirm').onclick = confirmDelete;
+    document.getElementById('btn-audit').onclick = () => {
+      const c = document.getElementById('audit-content');
+      if (!auditLog.length) c.innerHTML = '<p style="color:#6b7280">No audit entries yet.</p>';
+      else {
+        c.innerHTML = '<table style="width:100%;font-size:0.75rem;border-collapse:collapse"><thead><tr>' +
+          '<th style="text-align:left;padding:4px">When</th><th style="text-align:left;padding:4px">Action</th>' +
+          '<th style="text-align:left;padding:4px">Ref</th><th style="text-align:left;padding:4px">Admin</th></tr></thead><tbody>' +
+          auditLog.slice(0, 80).map(a => `<tr>
+            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(new Date(a.at).toLocaleString('en-GB'))}</td>
+            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.action)}</td>
+            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.ref)}</td>
+            <td style="padding:3px 4px;border-bottom:1px solid #e5e7eb">${esc(a.admin)}</td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+      document.getElementById('audit-modal').classList.add('open');
+    };
+    document.getElementById('audit-close').onclick = () =>
+      document.getElementById('audit-modal').classList.remove('open');
 
-  // ---------- Init ----------
-  load();
-  loadAudit();
-  applyFilters();
+    renderSrTable();
+    renderWoTable();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
