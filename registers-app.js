@@ -61,6 +61,48 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     return '<span class="status-pill" style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:0.7rem;font-weight:700;background:'+c.bg+';color:'+c.fg+';border:1px solid '+c.bd+';white-space:nowrap;">'+esc(s)+'</span>';
   }
 
+  /** Coloured container for Work Type — used on overview rows and detail panels (all historical + future). */
+
+  function normalizeWorkType(v) {
+    if (!v) return 'Repair - Non Emergency';
+    if (WORK_TYPES.indexOf(v) >= 0) return v;
+    const legacy = {
+      'Labour Only': 'Repair - Non Emergency',
+      'Parts + Labour': 'Repair - Non Emergency',
+      'Parts Only': 'Repair - Non Emergency',
+      'Emergency Repair': 'Repair - Emergency',
+      'Preventive Maintenance': 'Planned Inspection/Service',
+      'Calibration': 'Calibration',
+      'Installation / Commissioning': 'Installation',
+      'Compliance Inspection': 'Planned Inspection/Service',
+      'Other': 'Others',
+      'Diagnosis & On-Site Corrective Repair + Calibration Verification': 'Repair - Non Emergency',
+      'Preventive Maintenance (PM)': 'Planned Inspection/Service',
+      'Calibration / Accuracy Verification': 'Calibration',
+      'Compliance Audit / Inspection': 'Planned Inspection/Service',
+      'Cleaning / Filter Change': 'Others'
+    };
+    return legacy[v] || 'Others';
+  }
+
+  function workTypeBadge(wt) {
+    const s = wt || '';
+    const map = {
+      'Planned Inspection/Service':   { bg: '#ecfdf5', fg: '#065f46', bd: '#6ee7b7' },
+      'Unplanned Inspection/Service': { bg: '#f0fdfa', fg: '#0f766e', bd: '#5eead4' },
+      'Repair - Emergency':           { bg: '#fef2f2', fg: '#991b1b', bd: '#fca5a5' },
+      'Repair - Non Emergency':       { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' },
+      'Rework':                       { bg: '#faf5ff', fg: '#6b21a8', bd: '#d8b4fe' },
+      'Calibration':                  { bg: '#eff6ff', fg: '#1e40af', bd: '#93c5fd' },
+      'Site Survey':                  { bg: '#f8fafc', fg: '#334155', bd: '#cbd5e1' },
+      'Installation':                 { bg: '#eef2ff', fg: '#3730a3', bd: '#a5b4fc' },
+      'Others':                       { bg: '#f3f4f6', fg: '#4b5563', bd: '#d1d5db' }
+    };
+    const c = map[s] || { bg: '#f3f4f6', fg: '#374151', bd: '#d1d5db' };
+    const label = s || '—';
+    return '<span class="worktype-pill" style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:0.68rem;font-weight:700;background:'+c.bg+';color:'+c.fg+';border:1px solid '+c.bd+';white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;">'+esc(label)+'</span>';
+  }
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -126,6 +168,17 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     } catch (_) {
       woRecords = JSON.parse(JSON.stringify(WO_SEED));
     }
+    // Ensure every WO (seed + stored + future) uses harmonised Work Type labels
+    let woNorm = false;
+    woRecords.forEach(r => {
+      const nt = normalizeWorkType(r.type || r.workType);
+      if (r.type !== nt || r.workType !== nt) { r.type = nt; r.workType = nt; woNorm = true; }
+    });
+    if (woNorm) saveWo();
+    srRecords.forEach(r => {
+      const nt = normalizeWorkType(r.workType);
+      if (r.workType !== nt) r.workType = nt;
+    });
     try {
       const raw = localStorage.getItem(AUDIT_KEY);
       auditLog = raw ? JSON.parse(raw) : [];
@@ -349,7 +402,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <td>${esc(rec.client || '')}</td>
         <td>${esc(rec.site || '')}</td>
         <td class="details-col">${esc(rec.details || '')}</td>
-        <td>${esc(rec.workType || '')}</td>
+        <td>${workTypeBadge(rec.workType)}</td>
         <td><span class="${statusClass}">${esc(rec.triage || '')}</span></td>
         <td>
           <div class="row-actions">
@@ -388,7 +441,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     tbody.innerHTML = list.map(rec => {
       return `<tr data-wo="${esc(rec.wo)}">
         <td><strong>WO#${esc(rec.wo)}</strong>${rec.sr ? '<div style="font-size:0.65rem;color:#6b7280">from SR#' + esc(rec.sr) + '</div>' : ''}</td>
-        <td>${esc(rec.type || '')}</td>
+        <td>${workTypeBadge(rec.type || rec.workType)}</td>
         <td>${esc(rec.entry || '')}</td>
         <td>${esc(rec.start || '')}</td>
         <td>${esc(rec.end || '')}</td>
@@ -441,6 +494,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
           <select id="d-workType">
             ${WORK_TYPES.map(o => `<option value="${o}" ${rec.workType === o ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
+          <div style="margin-top:6px" id="d-workType-preview">${workTypeBadge(rec.workType)}</div>
         </div>
         <div class="detail-field full"><label>Job Details / Reported Problem</label>
           <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
@@ -490,6 +544,11 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     const qBtnSr = document.getElementById('detail-btn-quote-sr');
     if (qBtnSr) qBtnSr.onclick = () => quoteForSr(srNo);
     setHash('sr/' + srNo);
+    const wtSel = document.getElementById('d-workType');
+    if (wtSel) wtSel.addEventListener('change', () => {
+      const prev = document.getElementById('d-workType-preview');
+      if (prev) prev.innerHTML = workTypeBadge(wtSel.value);
+    });
     const saveBtn = document.getElementById('detail-btn-save-sr');
     if (saveBtn) saveBtn.onclick = () => saveSrDetail(srNo);
     const convBtn = document.getElementById('detail-btn-convert');
@@ -545,6 +604,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
           <select id="d-type">
             ${WORK_TYPES.map(o => `<option value="${o}" ${(rec.type || rec.workType) === o ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
+          <div style="margin-top:6px" id="d-type-preview">${workTypeBadge(rec.type || rec.workType)}</div>
         </div>
         <div class="detail-field"><label>Status</label>
           <select id="d-status" class="status-select status-select-${esc((rec.status||'').replace(/\s/g,''))}">
@@ -581,6 +641,23 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <button type="button" class="btn btn-success" id="detail-btn-quote-wo">${rec.quoteNo ? 'Open ' + esc(rec.quoteNo) : 'Create Quotation'}</button>
       </div>`;
     document.getElementById('detail-overlay').classList.add('open');
+    const typeSel = document.getElementById('d-type');
+    if (typeSel) typeSel.addEventListener('change', () => {
+      const prev = document.getElementById('d-type-preview');
+      if (prev) prev.innerHTML = workTypeBadge(typeSel.value);
+    });
+    const stSel = document.getElementById('d-status');
+    if (stSel) stSel.addEventListener('change', () => {
+      const wrap = stSel.parentElement;
+      const pill = wrap && wrap.querySelector('.status-pill');
+      if (pill) pill.outerHTML = statusBadge(stSel.value);
+      else {
+        const box = document.createElement('div');
+        box.style.marginTop = '6px';
+        box.innerHTML = statusBadge(stSel.value);
+        stSel.insertAdjacentElement('afterend', box);
+      }
+    });
     document.getElementById('detail-btn-save-wo').onclick = () => saveWoDetail(woNo);
     document.getElementById('detail-btn-quote-wo').onclick = () => quoteForWo(woNo);
     setHash('wo/' + woNo);
