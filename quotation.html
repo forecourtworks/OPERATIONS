@@ -341,11 +341,17 @@
           <input type="date" id="qtDate" />
         </div>
         <div class="field">
-          <label>Quotation Type</label>
+          <label>Work Type</label>
           <select id="qtType">
-            <option>Parts Only</option>
-            <option>Labour Only</option>
-            <option>Labour &amp; Parts</option>
+            <option>Planned Inspection/Service</option>
+            <option>Unplanned Inspection/Service</option>
+            <option>Repair - Emergency</option>
+            <option selected>Repair - Non Emergency</option>
+            <option>Rework</option>
+            <option>Calibration</option>
+            <option>Site Survey</option>
+            <option>Installation</option>
+            <option>Others</option>
           </select>
         </div>
       </div>
@@ -509,9 +515,27 @@
   <div class="app-footer">
     <button type="button" class="btn btn-ghost" id="btnNew">New quotation</button>
     <button type="button" class="btn btn-ghost" id="btnReset">Reset</button>
+    <button type="button" class="btn btn-success" id="btnSave" style="background:#166534;color:#fff;border:none;">Save</button>
     <button type="button" class="btn btn-primary" id="btnPdf">Generate PDF</button>
   </div>
   <div class="toast" id="toast"></div>
+
+  <!-- Admin auth for Save / New / Reset -->
+  <div id="qt-auth-modal" style="display:none;position:fixed;inset:0;background:rgba(13,38,77,0.5);z-index:500;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:22px;width:90%;max-width:380px;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
+      <h3 style="margin:0 0 6px;font-size:1rem;">Admin Authorisation Required</h3>
+      <p id="qt-auth-msg" style="font-size:0.85rem;color:#64748b;margin:0 0 12px;">Enter Document Control Admin name and password.</p>
+      <div id="qt-auth-error" style="display:none;color:#b91c1c;font-size:0.8rem;margin-bottom:8px;">Invalid credentials.</div>
+      <label style="font-size:0.75rem;font-weight:600;">Admin Name</label>
+      <input type="text" id="qt-auth-name" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:6px;margin:3px 0 10px;font-size:0.9rem;box-sizing:border-box;" />
+      <label style="font-size:0.75rem;font-weight:600;">Password</label>
+      <input type="password" id="qt-auth-pass" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:6px;margin:3px 0 10px;font-size:0.9rem;box-sizing:border-box;" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+        <button type="button" class="btn btn-ghost" id="qt-auth-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qt-auth-confirm">Authorise</button>
+      </div>
+    </div>
+  </div>
 
   <script src="fsw-pdf-theme.js"></script>
   <script src="quotation-app.js"></script>

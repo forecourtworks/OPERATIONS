@@ -14,6 +14,47 @@
   const MARGIN = 13;
 
   const STORAGE_KEY = 'fsw_quotation_v1';
+  const QT_AUDIT_KEY = 'fsw_registers_audit_v1'; // shared audit trail with registers
+  const QT_ADMINS = [
+    { name: 'Oguta', hash: 'e4dd5bd04b25dd2902a92a4a14217d922dffd0786e2e786d34ae794689871efc' },
+    { name: 'Kamando', hash: '27da462fd0cbe25e7b8c04cb674db6a7a7488fcd16c72ccb1bd86135cb2585b7' }
+  ];
+  let qtPendingAuth = null;
+
+  async function qtSha256(text) {
+    const data = new TextEncoder().encode(text);
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function qtVerifyAdmin(name, password) {
+    const n = (name || '').trim().toLowerCase();
+    const hash = await qtSha256(password || '');
+    return QT_ADMINS.find(a => a.name.toLowerCase() === n && a.hash === hash) || null;
+  }
+  function qtRequestAuth(actionLabel) {
+    return new Promise((resolve, reject) => {
+      qtPendingAuth = { resolve, reject, actionLabel };
+      const modal = $('qt-auth-modal');
+      if (!modal) { resolve({ name: 'system' }); return; } // fallback if modal missing
+      $('qt-auth-msg').textContent = 'Authorise to ' + actionLabel + '. Enter Document Control Admin name and password.';
+      $('qt-auth-name').value = '';
+      $('qt-auth-pass').value = '';
+      $('qt-auth-error').style.display = 'none';
+      modal.style.display = 'flex';
+      setTimeout(() => $('qt-auth-name').focus(), 50);
+    });
+  }
+  function qtLogAudit(action, adminName, ref, detail) {
+    try {
+      let log = [];
+      try { log = JSON.parse(localStorage.getItem(QT_AUDIT_KEY) || '[]'); } catch (_) {}
+      if (!Array.isArray(log)) log = [];
+      log.unshift({ action, admin: adminName, ref: ref || '', detail: detail || '', at: new Date().toISOString() });
+      if (log.length > 500) log = log.slice(0, 500);
+      localStorage.setItem(QT_AUDIT_KEY, JSON.stringify(log));
+    } catch (_) {}
+  }
+
   const STORE_KEY = 'fsw_quote_store_v1';       // full state per quotation number
   const REGISTER_KEY = 'fsw_quote_register_v1'; // light register used for numbering
   const QT_LAST_ISSUED = 67;                    // numbering continues from QT#00067
@@ -1338,6 +1379,32 @@
       el.addEventListener('input', scheduleSave);
       el.addEventListener('change', scheduleSave);
     });
+    
+    // Auth modal
+    const authModal = $('qt-auth-modal');
+    if ($('qt-auth-confirm')) {
+      $('qt-auth-confirm').addEventListener('click', async () => {
+        const admin = await qtVerifyAdmin($('qt-auth-name').value, $('qt-auth-pass').value);
+        if (!admin) {
+          $('qt-auth-error').style.display = 'block';
+          return;
+        }
+        if (authModal) authModal.style.display = 'none';
+        const p = qtPendingAuth;
+        qtPendingAuth = null;
+        if (p && p.resolve) p.resolve(admin);
+      });
+      $('qt-auth-cancel').addEventListener('click', () => {
+        if (authModal) authModal.style.display = 'none';
+        const p = qtPendingAuth;
+        qtPendingAuth = null;
+        if (p && p.reject) p.reject(new Error('cancelled'));
+      });
+      $('qt-auth-pass').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') $('qt-auth-confirm').click();
+      });
+    }
+
     $('btnPdf').addEventListener('click', () => {
       saveState();
       generatePdf().catch(err => {
@@ -1345,16 +1412,35 @@
         toast('PDF error: ' + (err.message || err));
       });
     });
+    
+    const btnSave = $('btnSave');
+    if (btnSave) btnSave.addEventListener('click', () => {
+      qtRequestAuth('save quotation ' + currentQtNo()).then(admin => {
+        saveState();
+        qtLogAudit('SAVE QT', admin.name, currentQtNo(), ($('customer') && $('customer').value) || '');
+        toast('Quotation saved');
+        try { notifyParent('saved'); } catch (_) {}
+      }).catch(() => {});
+    });
+
     const btnNew = $('btnNew');
     if (btnNew) btnNew.addEventListener('click', () => {
-      saveState();
-      newQuotation({}, {});
-      toast('New quotation ' + currentQtNo());
+      qtRequestAuth('create new quotation').then(admin => {
+        saveState();
+        const prev = currentQtNo();
+        newQuotation({}, {});
+        qtLogAudit('ADD QT', admin.name, currentQtNo(), 'new after ' + prev);
+        toast('New quotation ' + currentQtNo());
+      }).catch(() => {});
     });
     $('btnReset').addEventListener('click', async () => {
       if (!confirm('Reset form to defaults? All entered data will be cleared.')) return;
-      await hardReset();
-      toast('Form reset to defaults');
+      try {
+        const admin = await qtRequestAuth('reset quotation ' + currentQtNo());
+        await hardReset();
+        qtLogAudit('RESET QT', admin.name, currentQtNo(), 'form cleared');
+        toast('Form reset to defaults');
+      } catch (_) {}
     });
 
     document.querySelectorAll('[data-clear]').forEach(b => {
