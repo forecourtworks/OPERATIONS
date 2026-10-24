@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WPI self-test</title>
+<style>body{font-family:Arial,sans-serif;margin:20px;color:#1f2937}h1{font-size:1.1rem;color:#0d264d}.ok{color:#047857}.bad{color:#b91c1c;font-weight:700}li{margin:4px 0;font-size:.85rem}code{background:#f3f4f6;padding:1px 4px}</style></head>
+<body><h1>Work Priority Index engine self-test</h1><p id="sum">Running…</p><ul id="out"></ul>
+<script src="wpi-data.js"></script><script src="wpi-engine.js"></script><script src="wpi-selftest.js"></script>
+<script>
+  var T = FSW_WPI_RUN_TESTS(FSW_WPI), bad = 0, out = document.getElementById('out');
+  T.forEach(function (t) { if (!t.ok) bad++; var li = document.createElement('li'); li.className = t.ok ? 'ok' : 'bad';
+    li.textContent = (t.ok ? 'PASS  ' : 'FAIL  ') + t.name + (t.ok ? '' : '  got ' + JSON.stringify(t.got) + ' want ' + JSON.stringify(t.want)); out.appendChild(li); });
+  document.getElementById('sum').textContent = T.length + ' tests, ' + bad + ' failed. Engine ' + FSW_WPI.version + ', library ' + FSW_WPI.data.libraryDate + '.';
+  document.title = bad ? 'WPI self-test: FAIL' : 'WPI self-test: PASS';
+</script></body></html>

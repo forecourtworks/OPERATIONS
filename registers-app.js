@@ -10,6 +10,12 @@
   const SR_KEY = 'fsw_sr_register_v1';
   const WO_KEY = 'fsw_wo_register_v2';
   const AUDIT_KEY = 'fsw_registers_audit_v1';
+  // Work Priority Index modules (each optional: the registers keep working without them)
+  const WPI = window.FSW_WPI || null, WPI_UI = window.FSW_WPI_UI || null, SCHED = window.FSW_SCHED || null;
+  // Launch mode: index.html (all tabs), index.html?app=sr (Service Request standalone), index.html?app=wo (Work Order standalone)
+  const MODE = (function () { const m = (new URLSearchParams(location.search).get('app') || '').toLowerCase(); return (m === 'sr' || m === 'wo') ? m : 'all'; })();
+  const HOME = MODE === 'wo' ? 'wo' : 'sr';
+  let detailWpi = null;
 
   const WO_STATUS = ['Completed', 'Ongoing', 'Pending', 'Started', 'Stopped', 'Cancelled'];
   const SR_STATUS = ['Received', 'Under Review', 'Qualified', 'Rejected', 'Deferred'];
@@ -37,13 +43,17 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     const keys = Object.keys(after || {});
     const parts = [];
     keys.forEach(k => {
-      if (k === 'aiDone') return;
+      if (k === 'aiDone' || k === 'wpi' || k === 'sch' || k === 'createdAt' || k === 'wpiSource') return;
       const a = before && before[k];
       const b = after[k];
       if (String(a ?? '') !== String(b ?? '')) {
         parts.push(k + ': "' + String(a ?? '').slice(0, 40) + '" → "' + String(b ?? '').slice(0, 40) + '"');
       }
     });
+    if (WPI_UI && after && ((before && before.wpi) || after.wpi)) {
+      const a = WPI_UI.summary(before && before.wpi), b = WPI_UI.summary(after.wpi);
+      if (a !== b) parts.push('priority: ' + a + ' → ' + b);
+    }
     return parts.length ? parts.join('; ') : 'saved (no field changes detected)';
   }
 
@@ -235,7 +245,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
   }
 
   // ---------- section switch ----------
-  const SECTIONS = ['sr', 'qt', 'wo'];  // process flow: Service Request > Quotation > Work Order
+  const SECTIONS = MODE === 'sr' ? ['sr', 'qt'] : MODE === 'wo' ? ['qt', 'wo'] : ['sr', 'qt', 'wo'];  // process flow: Service Request > Quotation > Work Order
   function setHash(h) {
     const want = '#' + h;
     if (location.hash === want) return;
@@ -247,9 +257,9 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
   }
   function showSection(sec, opts) {
     opts = opts || {};
-    if (SECTIONS.indexOf(sec) < 0) sec = 'sr';
+    if (SECTIONS.indexOf(sec) < 0) sec = HOME;
     currentSection = sec;
-    try { localStorage.setItem('fsw_register_section', sec); } catch (_) {}
+    if (MODE === 'all') { try { localStorage.setItem('fsw_register_section', sec); } catch (_) {} }
     document.querySelectorAll('.section-tab').forEach(t => {
       t.classList.toggle('active', t.dataset.section === sec);
     });
@@ -365,6 +375,100 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
   }
 
   // ---------- SR filters & render ----------
+  // ---------- Work Priority helpers (shared by SR and WO) ----------
+  function srState(r) { return { closed: !!r.convertedWo || ['Rejected', 'Deferred'].indexOf(r.triage) >= 0, started: false }; }
+  function woState(r) { return { closed: r.status === 'Completed' || r.status === 'Cancelled', started: ['Started', 'Ongoing', 'Stopped'].indexOf(r.status) >= 0 }; }
+  function priCell(rec, kind) { return WPI_UI ? WPI_UI.cell(rec, kind === 'sr' ? srState(rec) : woState(rec)) : '&mdash;'; }
+  function priText(rec, kind) {
+    if (!WPI || !rec.wpi || !rec.wpi.header) return '—';
+    const e = WPI.effective(rec.wpi, new Date(), kind === 'sr' ? srState(rec) : woState(rec));
+    return 'P' + e.effective + (e.effective !== rec.wpi.header.priority ? '^' : '') + ' (' + e.score + ')';
+  }
+  function dueText(rec, kind) {
+    if (!WPI || !rec.wpi || !rec.wpi.header) return '—';
+    return WPI.util.fmtDate(rec.wpi.header.dueAt) || '—';
+  }
+  function sortRecords(list, kind) {
+    const num = r => parseInt(r[kind], 10) || 0;
+    const sel = document.getElementById(kind + '-q-sort');
+    if (!(sel && sel.value === 'pri' && WPI)) return list.sort((a, b) => num(b) - num(a));
+    const now = new Date();
+    const info = r => {
+      const e = r.wpi && r.wpi.header ? WPI.effective(r.wpi, now, kind === 'sr' ? srState(r) : woState(r)) : null;
+      return e ? { effective: e.effective, score: e.score, dueAt: e.dueAt, dimsHigh: r.wpi.header.dimsHigh, raisedAt: WPI.util.toDate(r.wpi.raisedAt) } : null;
+    };
+    return list.sort((a, b) => { const x = info(a), y = info(b); if (x && y) return WPI.compare(x, y); if (x) return -1; if (y) return 1; return num(b) - num(a); });
+  }
+  // A link to the other register: stays in the page when both tabs exist, opens the other app when running standalone
+  function recLink(kind, id) {
+    if (!id) return '';
+    const label = (kind === 'sr' ? 'SR#' : 'WO#') + id;
+    const same = MODE === 'all' || MODE === kind;
+    const href = same ? '#' + kind + '/' + id : 'index.html?app=' + kind + '#' + kind + '/' + id;
+    return '<a class="link-open" href="' + href + '"' + (same ? '' : ' target="fsw-' + kind + '"') + '>Open ' + label + (same ? '' : ' in the ' + (kind === 'sr' ? 'Service Request' : 'Work Order') + ' app') + ' ↗</a>';
+  }
+  function mountWpi(kind, rec) {
+    detailWpi = null;
+    const host = document.getElementById('wpi-host');
+    if (!host || !WPI_UI) return;
+    const raised = rec.wpi ? rec.wpi.raisedAt : (rec.createdAt || WPI.util.parseDisp(kind === 'sr' ? rec.requestDate : rec.entry) || new Date());
+    let note = '';
+    if (kind === 'wo' && rec.sr && rec.wpiSource) note = 'Priority inherited from ' + rec.wpiSource + ' when it was converted, and the clock keeps running from the original request. Edits here are logged.';
+    else if (kind === 'sr' && rec.convertedWo) note = 'Converted to WO#' + rec.convertedWo + '. The Work Order carries its own copy of this priority.';
+    detailWpi = WPI_UI.mount(host, {
+      wpi: rec.wpi || null, raisedAt: raised, selfWo: kind === 'wo' ? rec.wo : '', getHistory: () => WPI.historyFromWo(woRecords),
+      note: note, state: kind === 'sr' ? srState(rec) : woState(rec),
+      onAssetPick: p => {
+        const set = (id, v, force) => { const el = document.getElementById(id); if (el && (force || !el.value)) el.value = v; };
+        if (kind === 'sr') {
+          const sel = document.getElementById('d-equipCat');
+          if (sel && p.cat && !Array.prototype.some.call(sel.options, o => o.value === p.cat)) sel.add(new Option(p.cat, p.cat));
+          set('d-equipCat', p.cat, true);
+        } else set('d-equipCat', p.cat, true);
+        set('d-equipId', p.id, true); set('d-equipDesc', p.desc); set('d-mfr', [p.make, p.model].filter(Boolean).join(' '));
+      }
+    });
+  }
+  function wpiValidate() { return detailWpi ? detailWpi.validate() : ''; }
+  function applyWpi(rec, kind) {
+    if (!detailWpi || !detailWpi.dirty()) return '';
+    const v = detailWpi.value();
+    rec.wpi = v && v.header ? v : null;
+    if (kind === 'sr' && rec.wpi && rec.wpi.header.priority === 1 && !rec.emergency) { rec.emergency = true; return 'Emergency / Direct-to-WO set automatically (P1)'; }
+    return '';
+  }
+  function openRecord(kind, id) {
+    closeDetail(true);
+    if (SECTIONS.indexOf(kind) >= 0) { showSection(kind); if (kind === 'sr') openSrDetail(id); else openWoDetail(id); }
+    else window.open('index.html?app=' + kind + '#' + kind + '/' + id, 'fsw-' + kind);
+  }
+  function openPriorityQueue() {
+    if (!SCHED) return;
+    loadAll();
+    SCHED.openQueue({ getSr: () => srRecords, getWo: () => woRecords, saveWo: saveWo, toast: toast, onOpen: openRecord,
+      authorise: () => requestAuth('change the scheduler endpoint'), onConfig: v => logChange('SCHEDULER SETTINGS', 'admin', 'endpoint', v || '(cleared)') });
+  }
+  function recalcAllOpen(admin) {
+    if (!WPI) return;
+    const settings = WPI.getSettings(), hist = WPI.historyFromWo(woRecords);
+    let n = 0;
+    const redo = (rec, kind) => {
+      const w = rec.wpi; if (!w || !w.lines || w.site === 'OTHER') return;
+      const inputs = w.lines.map(l => ({ code: l.code, cls: l.cls, key: l.key, product: l.product, cond: l.cond, evidence: l.evidence, expiry: l.expiry }));
+      const sigBefore = kind === 'wo' && SCHED ? SCHED.signature(rec) : '';
+      rec.wpi = WPI.scoreRequest(inputs, { raisedAt: w.raisedAt, now: new Date(), siteInputs: settings.siteInputs, history: hist, selfWo: kind === 'wo' ? rec.wo : '', override: w.override, parent: w.parent, parentDesc: w.parentDesc, siteMode: 'reg' });
+      if (w.lines.length && rec.wpi.header && rec.wpi.header.priority === 1 && kind === 'sr' && !rec.emergency) rec.emergency = true;
+      if (kind === 'wo' && SCHED) SCHED.enqueueIfChanged(rec, sigBefore, 'recalculated after settings change');
+      n++;
+    };
+    srRecords.forEach(r => { if (!r.convertedWo) redo(r, 'sr'); });
+    woRecords.forEach(r => { if (r.status !== 'Completed' && r.status !== 'Cancelled') redo(r, 'wo'); });
+    saveSr(); saveWo();
+    logChange('PRIORITY RECALC', admin ? admin.name : 'admin', 'open items', n + ' record(s) recalculated with current site inputs');
+    toast(n + ' open record(s) recalculated', 'success');
+    renderSrTable(); renderWoTable();
+  }
+
   function filteredSr() {
     let list = srRecords.slice();
     const clientQ = (document.getElementById('sr-q-client').value || '').trim().toLowerCase();
@@ -376,8 +480,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     if (statusQ) list = list.filter(r => r.triage === statusQ);
     if (convQ === 'yes') list = list.filter(r => !!r.convertedWo);
     if (convQ === 'no') list = list.filter(r => !r.convertedWo);
-    list.sort((a, b) => parseInt(b.sr, 10) - parseInt(a.sr, 10));
-    return list;
+    return sortRecords(list, 'sr');
   }
   function renderSrTable() {
     const list = filteredSr();
@@ -403,6 +506,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <td>${esc(rec.site || '')}</td>
         <td class="details-col">${esc(rec.details || '')}</td>
         <td>${workTypeBadge(rec.workType)}</td>
+        <td class="priority-cell">${priCell(rec, 'sr')}</td>
         <td><span class="${statusClass}">${esc(rec.triage || '')}</span></td>
         <td>
           <div class="row-actions">
@@ -431,8 +535,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     if (noQ) list = list.filter(r => (r.wo || '').includes(noQ));
     if (statusQ) list = list.filter(r => r.status === statusQ);
     // simple date filter left for later refinement
-    list.sort((a, b) => parseInt(b.wo, 10) - parseInt(a.wo, 10));
-    return list;
+    return sortRecords(list, 'wo');
   }
   function renderWoTable() {
     const list = filteredWo();
@@ -442,6 +545,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
       return `<tr data-wo="${esc(rec.wo)}">
         <td><strong>WO#${esc(rec.wo)}</strong>${rec.sr ? '<div style="font-size:0.65rem;color:#6b7280">from SR#' + esc(rec.sr) + '</div>' : ''}</td>
         <td>${workTypeBadge(rec.type || rec.workType)}</td>
+        <td class="priority-cell">${priCell(rec, 'wo')}</td>
         <td>${esc(rec.entry || '')}</td>
         <td>${esc(rec.start || '')}</td>
         <td>${esc(rec.end || '')}</td>
@@ -481,7 +585,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
         <div class="detail-field"><label>Equipment Category</label>
           <select id="d-equipCat">
-            ${['','Fuel Dispenser','UST','AST','Piping','Generator','Air Compressor','Other'].map(o =>
+            ${['','Fuel Dispenser','UST','AST','Piping','Generator','Air Compressor','STP / Pump','Canopy / Totem','Electrical / ESD','Interceptor / Drainage','ATG / Monitoring','CCTV','Tyre Inflation','Compliance','Workshop Equipment','Other'].map(o =>
               `<option value="${o}" ${rec.equipCat === o ? 'selected' : ''}>${o || '— Select —'}</option>`).join('')}
           </select>
         </div>
@@ -498,6 +602,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         </div>
         <div class="detail-field full"><label>Job Details / Reported Problem</label>
           <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
+        <div id="wpi-host" style="grid-column:1/-1"></div>
         <div class="detail-field"><label>Channel Received</label>
           <select id="d-channel">
             ${['Phone','WhatsApp','Email','Walk-in','Portal','Other'].map(o =>
@@ -531,7 +636,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <div class="detail-field"><label>Quotation No</label>
           <input type="text" value="${esc(rec.quoteNo || '\u2014')}" readonly /></div>
         <div class="detail-field"><label>Converted to WO</label>
-          <input type="text" value="${esc(rec.convertedWo ? 'WO#' + rec.convertedWo : '—')}" readonly /></div>
+          <input type="text" value="${esc(rec.convertedWo ? 'WO#' + rec.convertedWo : '—')}" readonly />${rec.convertedWo ? recLink('wo', rec.convertedWo) : ''}</div>
       </div>
       <div class="detail-actions">
         <button type="button" class="btn btn-primary" id="detail-btn-save-sr">Save</button>
@@ -541,6 +646,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
           : ''}
       </div>`;
     document.getElementById('detail-overlay').classList.add('open');
+    mountWpi('sr', rec);
     const qBtnSr = document.getElementById('detail-btn-quote-sr');
     if (qBtnSr) qBtnSr.onclick = () => quoteForSr(srNo);
     setHash('sr/' + srNo);
@@ -556,6 +662,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
   }
 
   function saveSrDetail(srNo) {
+    const wv = wpiValidate(); if (wv) { toast(wv, 'error'); return; }
     requestAuth('edit Service Request SR#' + srNo).then(admin => {
       const rec = srRecords.find(r => r.sr === srNo);
       if (!rec) return;
@@ -578,8 +685,9 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
       rec.quoteReq = document.getElementById('d-quoteReq').value;
       rec.quoteAcc = document.getElementById('d-quoteAcc').value;
       rec.emergency = document.getElementById('d-emergency').value === 'Yes';
+      const wnote = applyWpi(rec, 'sr');
       saveSr();
-      logChange('EDIT SR', admin.name, 'SR#' + srNo, summarizeEdits(before, rec));
+      logChange('EDIT SR', admin.name, 'SR#' + srNo, summarizeEdits(before, rec) + (wnote ? '; ' + wnote : ''));
       toast('Service Request saved', 'success');
       renderSrTable();
       openSrDetail(srNo);
@@ -597,7 +705,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     body.innerHTML = `
       <div class="detail-grid">
         <div class="detail-field"><label>WO Number</label><input type="text" value="WO#${esc(rec.wo)}" readonly /></div>
-        <div class="detail-field"><label>Linked SR</label><input type="text" value="${esc(rec.sr ? 'SR#' + rec.sr : '—')}" readonly /></div>
+        <div class="detail-field"><label>Linked SR</label><input type="text" value="${esc(rec.sr ? 'SR#' + rec.sr : '—')}" readonly />${rec.sr ? recLink('sr', rec.sr) : ''}</div>
         <div class="detail-field"><label>Quotation No</label>
           <input type="text" value="${esc(rec.quoteNo || '\u2014')}" readonly /></div>
         <div class="detail-field"><label>Work Type</label>
@@ -619,12 +727,18 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <div class="detail-field"><label>Location</label><input type="text" id="d-location" value="${esc(rec.location || '')}" /></div>
         <div class="detail-field full"><label>Job Details</label>
           <textarea id="d-details" rows="3">${esc(rec.details || '')}</textarea></div>
+        <div id="wpi-host" style="grid-column:1/-1"></div>
         <div class="detail-field"><label>Equipment ID</label><input type="text" id="d-equipId" value="${esc(rec.equipId || '')}" /></div>
         <div class="detail-field"><label>Equipment Category</label><input type="text" id="d-equipCat" value="${esc(rec.equipCat || '')}" /></div>
         <div class="detail-field full"><label>Equipment Description</label>
           <textarea id="d-equipDesc" rows="2">${esc(rec.equipDesc || '')}</textarea></div>
         <div class="detail-field"><label>Work Type</label><input type="text" id="d-workType" value="${esc(rec.workType || '')}" /></div>
         <div class="detail-field"><label>Site Contact</label><input type="text" id="d-contact" value="${esc(rec.contact || '')}" /></div>
+        <div class="detail-field"><label>Parts ready?</label>
+          <select id="d-partsReady">${['', 'Yes', 'No'].map(o => `<option value="${o}" ${(rec.partsReady || '') === o ? 'selected' : ''}>${o || 'Unknown'}</option>`).join('')}</select></div>
+        <div class="detail-field"><label>Estimated duration (hours)</label><input type="number" min="0" step="0.5" id="d-estHours" value="${esc(rec.estHours || '')}" /></div>
+        <div class="detail-field"><label>Access window / site constraints</label><input type="text" id="d-accessWindow" value="${esc(rec.accessWindow || '')}" placeholder="e.g. off-peak only, tanker delivery 10:00" /></div>
+        <div class="detail-field"><label>Scheduler hand-off</label><input type="text" readonly value="${esc(rec.sch ? 'v' + rec.sch.version + ' (' + (rec.sch.lastEff ? 'P' + rec.sch.lastEff : '') + ')' : 'Not pushed yet')}" /></div>
       </div>
       <div class="ai-box">
         <h4>AI-assisted Work Order document</h4>
@@ -641,6 +755,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         <button type="button" class="btn btn-success" id="detail-btn-quote-wo">${rec.quoteNo ? 'Open ' + esc(rec.quoteNo) : 'Create Quotation'}</button>
       </div>`;
     document.getElementById('detail-overlay').classList.add('open');
+    mountWpi('wo', rec);
     const typeSel = document.getElementById('d-type');
     if (typeSel) typeSel.addEventListener('change', () => {
       const prev = document.getElementById('d-type-preview');
@@ -668,10 +783,12 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
   }
 
   function saveWoDetail(woNo) {
+    const wv = wpiValidate(); if (wv) { toast(wv, 'error'); return; }
     requestAuth('edit Work Order WO#' + woNo).then(admin => {
       const rec = woRecords.find(r => r.wo === woNo);
       if (!rec) return;
       const before = Object.assign({}, rec);
+      const sigBefore = SCHED ? SCHED.signature(rec) : '';
       rec.type = document.getElementById('d-type').value;
       rec.status = document.getElementById('d-status').value;
       rec.entry = document.getElementById('d-entry').value;
@@ -685,8 +802,14 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
       rec.equipDesc = document.getElementById('d-equipDesc').value;
       rec.workType = document.getElementById('d-workType').value;
       rec.contact = document.getElementById('d-contact').value;
+      rec.partsReady = document.getElementById('d-partsReady').value;
+      rec.estHours = document.getElementById('d-estHours').value;
+      rec.accessWindow = document.getElementById('d-accessWindow').value;
+      applyWpi(rec, 'wo');
+      if (rec.status === 'Completed' && rec.wpi && !rec.wpi.completedAt) rec.wpi.completedAt = new Date().toISOString();
+      const env = SCHED ? SCHED.enqueueIfChanged(rec, sigBefore, 'work order saved') : null;
       saveWo();
-      logChange('EDIT WO', admin.name, 'WO#' + woNo, summarizeEdits(before, rec));
+      logChange('EDIT WO', admin.name, 'WO#' + woNo, summarizeEdits(before, rec) + (env ? '; queued for scheduler (' + env.id + ')' : ''));
       toast('Work Order saved', 'success');
       renderWoTable();
       openWoDetail(woNo);
@@ -744,19 +867,22 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         workType: rec.workType || '',
         contact: rec.contact || '',
         phone: rec.phone || '',
-        aiDone: false
+        aiDone: false,
+        createdAt: new Date().toISOString()
       };
+      // Priority travels with the request: same result, same clock
+      if (rec.wpi) { newWo.wpi = JSON.parse(JSON.stringify(rec.wpi)); newWo.wpiSource = 'SR#' + rec.sr; }
       woRecords.push(newWo);
+      if (SCHED && newWo.wpi) SCHED.enqueue(newWo, 'converted from SR#' + srNo);
       rec.convertedWo = woNo;
       rec.convertedAt = new Date().toISOString();
       saveSr();
       saveWo();
       logChange('CONVERT SR→WO', admin.name, 'SR#' + srNo + ' → WO#' + woNo, rec.client);
       toast('Created WO#' + woNo + ' from SR#' + srNo, 'success');
-      // Switch to WO section and open detail
-      showSection('wo');
       closeDetail();
-      openWoDetail(woNo);
+      if (SECTIONS.indexOf('wo') >= 0) { showSection('wo'); openWoDetail(woNo); }
+      else { renderSrTable(); openSrDetail(srNo); toast('WO#' + woNo + ' created. Open it from the link on this request, or in the Work Order app.', 'success'); }
     }).catch(() => {});
   }
 
@@ -785,7 +911,8 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         quoteAcc: 'Pending',
         emergency: false,
         convertedWo: '',
-        registeredBy: admin.name
+        registeredBy: admin.name,
+        createdAt: new Date().toISOString()
       });
       saveSr();
       logChange('ADD SR', admin.name, 'SR#' + no, '');
@@ -808,7 +935,8 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         location: '',
         details: '',
         sr: '',
-        aiDone: false
+        aiDone: false,
+        createdAt: new Date().toISOString()
       });
       saveWo();
       logChange('ADD WO', admin.name, 'WO#' + no, '');
@@ -892,11 +1020,12 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         { k: 'details', l: 'Job Details', w: 70 },
         { k: 'workType', l: 'Work Type', w: 40 },
         { k: 'triage', l: 'Triage', w: 28 },
+        { k: 'pri', l: 'Pri', w: 9 },
         { k: 'convertedWo', l: 'WO', w: 18 }
       ];
       drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
         'SR#' + (r.sr || ''), r.requestDate || '', r.client || '', r.site || '',
-        r.details || '', r.workType || '', r.triage || '',
+        r.details || '', r.workType || '', r.triage || '', priText(r, 'sr').split(' ')[0],
         r.convertedWo ? 'WO#' + r.convertedWo : '—'
       ]);
     } else {
@@ -905,13 +1034,15 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
         { k: 'type', l: 'Type', w: 28 },
         { k: 'entry', l: 'Entry', w: 20 },
         { k: 'status', l: 'Status', w: 22 },
+        { k: 'pri', l: 'Priority', w: 14 },
+        { k: 'due', l: 'Due', w: 21 },
         { k: 'client', l: 'Client', w: 36 },
         { k: 'location', l: 'Location', w: 30 },
         { k: 'details', l: 'Job Details', w: 70 },
         { k: 'sr', l: 'From SR', w: 18 }
       ];
       drawPdfTable(doc, cols, rows, y, M, pageW, pageH, navy, r => [
-        'WO#' + (r.wo || ''), r.type || '', r.entry || '', r.status || '',
+        'WO#' + (r.wo || ''), r.type || '', r.entry || '', r.status || '', priText(r, 'wo'), dueText(r, 'wo'),
         r.client || '', r.location || '', r.details || '',
         r.sr ? 'SR#' + r.sr : '—'
       ]);
@@ -1001,6 +1132,8 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
       ['Client', rec.client],
       ['Location', rec.location],
       ['Status', rec.status],
+      ['Priority', rec.wpi && rec.wpi.header ? priText(rec, 'wo') + ' · ' + (rec.wpi.header.reason || '') : 'Not scored'],
+      ['Respond by / Due', rec.wpi && rec.wpi.header ? WPI.util.fmtDateTime(rec.wpi.header.respondBy) + ' / ' + WPI.util.fmtDateTime(rec.wpi.header.dueAt) : '—'],
       ['Type', rec.type],
       ['Work Type', rec.workType],
       ['Job Details', rec.details],
@@ -1039,7 +1172,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
       t.addEventListener('click', () => showSection(t.dataset.section));
     });
     // SR toolbar
-    ['sr-q-client', 'sr-q-no', 'sr-q-status', 'sr-q-converted'].forEach(id => {
+    ['sr-q-client', 'sr-q-no', 'sr-q-status', 'sr-q-converted', 'sr-q-sort'].forEach(id => {
       document.getElementById(id).addEventListener('input', renderSrTable);
       document.getElementById(id).addEventListener('change', renderSrTable);
     });
@@ -1052,7 +1185,7 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     document.getElementById('sr-btn-add').onclick = addSr;
     document.getElementById('sr-btn-export').onclick = () => exportRegisterPdf('sr');
     // WO toolbar
-    ['wo-q-client', 'wo-q-no', 'wo-q-status', 'wo-q-from', 'wo-q-to'].forEach(id => {
+    ['wo-q-client', 'wo-q-no', 'wo-q-status', 'wo-q-from', 'wo-q-to', 'wo-q-sort'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener('input', renderWoTable);
@@ -1066,6 +1199,35 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     };
     document.getElementById('wo-btn-add').onclick = addWo;
     document.getElementById('wo-btn-export').onclick = () => exportRegisterPdf('wo');
+
+    // ----- Work Priority Index wiring -----
+    ['sr-btn-queue', 'wo-btn-queue'].forEach(id => { const b = document.getElementById(id); if (!b) return; if (SCHED) b.onclick = openPriorityQueue; else b.style.display = 'none'; });
+    const wsb = document.getElementById('btn-wpi-settings');
+    if (wsb) {
+      if (!WPI_UI) wsb.style.display = 'none';
+      else wsb.onclick = () => WPI_UI.openSettings({
+        authorise: () => requestAuth('change Work Priority settings'),
+        onSaved: (txt, admin, siteChanged) => {
+          logChange('PRIORITY SETTINGS', admin.name, 'settings', txt);
+          toast('Priority settings saved', 'success');
+          if (siteChanged && confirm('Recalculate all open service requests and work orders with the new site inputs?')) recalcAllOpen(admin);
+          else { renderSrTable(); renderWoTable(); }
+        }
+      });
+    }
+    if (MODE !== 'all') {
+      const tag = document.querySelector('.app-header .tag');
+      if (tag) tag.textContent = (MODE === 'sr' ? 'Service Request app (standalone)' : 'Work Order app (standalone)') + ' · shares data with the other apps on this device';
+      document.title = (MODE === 'sr' ? 'Service Requests' : 'Work Orders') + ' · Forecourt Works';
+    }
+    // Standalone apps in separate windows stay in step through shared storage
+    window.addEventListener('storage', e => {
+      if ([SR_KEY, WO_KEY, AUDIT_KEY, 'fsw_wpi_settings_v1', 'fsw_scheduler_outbox_v1'].indexOf(e.key) < 0) return;
+      loadAll(); renderSrTable(); renderWoTable();
+      if (detailCtx && (e.key === SR_KEY || e.key === WO_KEY)) toast('Records were updated in another window. Close and reopen the record to see the latest.', 'success');
+    });
+    if (SCHED) SCHED.watch(() => woRecords, saveWo, renderWoTable);
+    setInterval(() => { if (!detailCtx) { renderSrTable(); renderWoTable(); } }, 120000);
 
     // delegated row actions
     document.body.addEventListener('click', (e) => {
@@ -1119,9 +1281,9 @@ const WO_SEED = [{"wo":"0001","type":"Repair - Non Emergency","entry":"","start"
     setHeaderHeight();
     // A link such as #wo or #qt opens that tab directly; otherwise restore the last tab used
     if (!route()) {
-      let savedSec = 'sr';
-      try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {}
-      showSection(SECTIONS.indexOf(savedSec) >= 0 ? savedSec : 'sr');
+      let savedSec = HOME;
+      if (MODE === 'all') { try { savedSec = localStorage.getItem('fsw_register_section') || 'sr'; } catch (_) {} }
+      showSection(SECTIONS.indexOf(savedSec) >= 0 ? savedSec : HOME);
     }
   }
 

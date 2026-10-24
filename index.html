@@ -7,6 +7,7 @@
   <title>Forecourt Works Ltd | Service Requests, Work Orders &amp; Quotations</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>(function(){var m=(new URLSearchParams(location.search).get("app")||"").toLowerCase();if(m==="sr"||m==="wo")document.documentElement.classList.add("mode-"+m);})();</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     :root {
@@ -464,6 +465,11 @@
       color: var(--muted);
       font-size: 0.9rem;
     }
+    /* standalone modes: index.html?app=sr or ?app=wo */
+    html.mode-sr .section-tab[data-section="wo"], html.mode-sr #section-wo { display: none !important; }
+    html.mode-wo .section-tab[data-section="sr"], html.mode-wo #section-sr { display: none !important; }
+    .priority-cell { white-space: nowrap; }
+    .link-open { font-size: 0.7rem; margin-top: 3px; display: inline-block; color: var(--navy); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -475,6 +481,7 @@
         <div class="tag">Engineering Reliability Into Every Forecourt · Controlled Registers</div>
       </div>
       <div class="header-actions">
+        <button type="button" class="btn btn-navy btn-sm" id="btn-wpi-settings">Priority Settings</button>
         <button type="button" class="btn btn-navy btn-sm" id="btn-audit">Audit Trail</button>
       </div>
     </div>
@@ -524,7 +531,10 @@
           <option value="yes">Converted</option>
         </select>
       </div>
+      <div class="field"><label>Sort</label>
+        <select id="sr-q-sort"><option value="new">Newest first</option><option value="pri">Priority first</option></select></div>
       <button type="button" class="btn btn-outline btn-sm" id="sr-btn-reset">Reset</button>
+      <button type="button" class="btn btn-outline btn-sm" id="sr-btn-queue">Priority Queue</button>
       <div class="spacer"></div>
       <span class="view-info" id="sr-view-info">—</span>
       <button type="button" class="btn btn-primary btn-sm" id="sr-btn-add">+ ADD SERVICE REQUEST</button>
@@ -541,6 +551,7 @@
               <th>Site</th>
               <th class="details-col">Job Details</th>
               <th>Work Type</th>
+              <th>Priority</th>
               <th>Triage</th>
               <th>Actions</th>
             </tr>
@@ -588,7 +599,10 @@
         <label>To</label>
         <input type="text" id="wo-q-to" placeholder="DD.MM.YYYY" />
       </div>
+      <div class="field"><label>Sort</label>
+        <select id="wo-q-sort"><option value="new">Newest first</option><option value="pri">Priority first</option></select></div>
       <button type="button" class="btn btn-outline btn-sm" id="wo-btn-reset">Reset</button>
+      <button type="button" class="btn btn-outline btn-sm" id="wo-btn-queue">Priority Queue</button>
       <div class="spacer"></div>
       <span class="view-info" id="wo-view-info">—</span>
       <button type="button" class="btn btn-primary btn-sm" id="wo-btn-add">+ ADD WORK ORDER</button>
@@ -601,6 +615,7 @@
             <tr>
               <th>WO No</th>
               <th>Work Type</th>
+              <th>Priority</th>
               <th>Entry</th>
               <th>Start</th>
               <th>End</th>
@@ -676,6 +691,10 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="wpi-data.js"></script>
+  <script src="wpi-engine.js"></script>
+  <script src="wpi-ui.js"></script>
+  <script src="wpi-scheduler.js"></script>
   <script src="registers-app.js"></script>
 </body>
 </html>
